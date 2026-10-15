@@ -16,11 +16,10 @@ Phases 1–4. Nothing here is executed yet.
   ADVISORY = measured and reported, non-gating.
 - **IDs**: area prefix `HOOKD/HOST/PROJ/FLOW/IPC/QUIET/LAZY/BUDGET/FAIL/SEC/SETUP/SKEL`
   + number. Test reports and bug IDs must cite these.
-- **Where numbers conflict, the spec governs.** One conflict already found:
-  PRD §4 says "idle RSS ≤ 250 MB"; spec §10 says total shell stack ≤ 500 MB with
-  `MemoryMax` 430M+64M=494M and a ≤1.25×-baseline idle gate. The spec supersedes
-  (it is later and more specific) — Architect to confirm, until then QA tests to
-  the spec.
+- **Budget authority (resolved 2026-10-15):** spec §10's "Budget authority"
+  paragraph governs — 500 MB cap-sum for Meeko's own processes (Codync excluded),
+  idle ≤ 1.25× the measured baseline. PRD §4's 250 MB survives as the expected
+  landing zone, not a competing ceiling. One number, per Architect + CR&S.
 
 ## 1. Environments
 
@@ -32,6 +31,16 @@ Phases 1–4. Nothing here is executed yet.
 
 Every run records `qs --version`, `hyprland --version`, rustc/cargo/node versions in
 the result header — failures get attributed to version drift, not guessed at.
+
+**Measurement methodology (budget gates):** budget cases measure the two systemd
+units' cgroups (`systemctl show -p MemoryCurrent quickshell.service
+meeko-hookd.service`), never whole-session scanning — the Codync stack (≈378 MB,
+`docs/qa/baseline-v0.md`) must stay visibly excluded from the number. RSS is the
+median of N samples at a defined quiescence (5 min idle, N=5); this host runs near
+its memory ceiling (~510 Mi available at last read, zram nearly full), so a single
+uncontrolled sample would manufacture false failures. All swap-related tests run
+against mocked `/proc/swaps` + zram sysfs, or dry-run — never the live swap
+configuration.
 
 ## 2. Contract — hookd socket (spec §6.1)
 
@@ -138,7 +147,7 @@ the result header — failures get attributed to version drift, not guessed at.
 | ID | Case | Pass criteria | Gate |
 |---|---|---|---|
 | BUDGET-01 | idle flat | total-process RSS flat over 10 min (quickshell + hookd), excluding Codync processes | BLOCKING |
-| BUDGET-02 | idle ceiling | ≤ 1.25× measured impasto-only baseline **(baseline pending: System agent capture)** | BLOCKING |
+| BUDGET-02 | idle ceiling | quickshell-process idle ≤ ~85 MB (1.25 × 68 MB measured baseline, `docs/qa/baseline-v0.md`); hookd inside its own 64 MB cap | BLOCKING |
 | BUDGET-03 | hard cap | quickshell `MemoryMax=430M` + hookd `MemoryMax=64M` = 494M < 500M — enforced by cgroup in a throwaway scope (container), never the user session | BLOCKING |
 | BUDGET-04 | throttle before kill | `MemoryHigh=350M` engages before hard cap (sustained run stays well under) | BLOCKING |
 | BUDGET-05 | crash recovery | `kill -9` quickshell → unit restarts within ~1 s, shell returns usable | BLOCKING |
@@ -181,6 +190,8 @@ the result header — failures get attributed to version drift, not guessed at.
 | SETUP-05 | idempotent | running setup twice produces no diff | BLOCKING |
 | SETUP-06 | env file generated | unit env file contains the three session vars (cross-ref BUDGET-07) | BLOCKING |
 | SETUP-07 | firstrun/welcome | firstrun flag set once; welcome state shown once — **shape blocked on §14.2** (CLI vs in-shell) | BLOCKED |
+| SETUP-08 | existing swap respected | `/proc/swaps` + `/sys/block/zram0/*` scanned **before** offering; existing zram (this box: 7.1/7.2 G, nearly full) or disk swap/hibernation → detected, printed with algo/size, creation step skipped, nothing touched; `--configure-zram` still refuses without `--force-zram` + printed current-vs-proposed diff | BLOCKING |
+| SETUP-09 | doctor swap-health line | reports swap used %, zram fullness, available RAM; warns when zram > 80% — must fire on this box (98% full): correct signal, not noise | BLOCKING |
 
 ## 14. Skeleton, license, beauty (Phase 1; PRD §2)
 
@@ -235,6 +246,7 @@ the result header — failures get attributed to version drift, not guessed at.
 2. §14.2 (onboarding shape) → SETUP-07.
 3. §14.3 (systemd unit vs exec-once) → BUDGET-03/05/07 — the caps story depends
    on units; Architect's and DevOps' recommendation is units and the spec assumes it.
-4. Number reconciliation PRD 250 MB vs spec 500 MB — Architect confirm (§0).
-5. Idle baseline capture (quickshell-only RSS, codync-host RSS) — System agent,
-   per Orchestrator's proposal; BUDGET-02 cannot be computed without it.
+4. Number reconciliation PRD 250 MB vs spec 500 MB — **closed**: spec §10 Budget
+   authority governs (§0); PRD §4 superseded.
+5. Baseline capture — **landed** (`docs/qa/baseline-v0.md`): 68 MB quickshell →
+   BUDGET-02 gate ≈ 85 MB.
