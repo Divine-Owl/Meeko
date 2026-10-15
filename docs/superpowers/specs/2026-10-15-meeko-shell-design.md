@@ -206,7 +206,8 @@ meeko/
 ├── hookd/                         # NEW Rust daemon
 │   └── src/{main,config,token,host,projection,socket,verbs,events}.rs
 ├── system/systemd/user/{quickshell.service,meeko-hookd.service}
-├── setup                          # first-run: packages, zram, units, firstrun flag
+├── setup                          # first-run: packages, swap option, units, env file, firstrun flag
+├── ci/check.sh                    # local mirror of CI gates (qmllint, syntax, hookd tests, gitleaks)
 ├── tests/                         # QA-owned: fixtures (scrubbed SSE) + suites
 └── docs/
 ```
@@ -261,6 +262,23 @@ connection.
 Hard-cap arithmetic: 430M + 64M = **494M < 500M** — the never-exceed line stays
 inside the promise. `MemoryHigh` throttles quickshell at 350M before the hard
 cap engages, so sustained running stays well below it.
+
+**Session environment (required for the unit):** a user service does not inherit
+the compositor session env. Units bind to `graphical-session.target` (i.e. after
+Hyprland), import `WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`,
+`XDG_RUNTIME_DIR` via `ImportEnvironment` or an env file generated at
+`meeko setup`, and stop cleanly at logout. Without this the shell starts black
+on a fresh install — it's part of the AIO promise, not an optional extra. The
+quickshell unit takes **no hard dependency on meeko-hookd**: if the daemon is
+down, MeekoService's degraded mode is the designed path.
+
+**Budget authority (single source of truth; supersedes PRD §4's early
+≤250 MB figure):** the never-exceed line is the systemd cap sum — **500 MB total
+for Meeko's own processes** (quickshell 430M + hookd 64M = 494M), with Codync's
+processes excluded. The pass/fail idle gate is **≤1.25× the measured
+impasto-only baseline**; at a ~250 MB baseline that lands ≈310 MB idle, which
+is how the earlier 250 MB figure survives — as the expected idle landing zone,
+not a second ceiling. All budget tests assert this section.
 
 hookd has **no ordering dependency** on `codync-host.service` (it must run when
 the host is down — degraded mode). `Restart=on-failure` makes worst-case kills
@@ -328,4 +346,5 @@ user's measured impasto-only baseline (baseline capture: System agent).
    contract tests vs mock.
 3. **Phase 3 — agent surface**: AgentModule, AgentPanel, approval cards, usage chip.
 4. **Phase 4 — efficiency**: ShellModeService, quiet mode, tiering + lazy load,
-   systemd caps, setup/zram, onboarding.
+   systemd units + caps, setup (packages, swap option, session env file),
+   onboarding.
