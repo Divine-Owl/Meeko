@@ -20,7 +20,8 @@ One synergistic Hyprland desktop shell combining:
 - **Security boundary:** approval verdicts are NEVER `qs ipc call` verbs. Sensitive verbs live on `meeko-hookd`'s Unix socket with `SO_PEERCRED` same-uid + policy checks. Human-in-the-loop approval is the default grant path.
 
 ## 4. Non-functional requirements
-- Idle RSS ≤ 250 MB, no growth over 10 min (QA gate, pass/fail).
+- **Budget authority (superseded by spec §10, 2026-10-15):** never-exceed = **500 MB total for Meeko's own processes** (Codync excluded, systemd cgroup caps); idle gate = **≤1.25× measured baseline** (~68 MB quickshell baseline → ≈85 MB idle landing zone, hookd within its 64 MB cap). The old 250 MB figure is retired as a ceiling; QA asserts spec §10 verbatim.
+- Flat RSS: no growth over 10 min (QA gate, pass/fail).
 - Every IPC verb ships JSON success AND error shapes (`{"ok":true,...}` / `{"error":"..."}`), input-validated per impasto's existing pattern (allowlists, parseInt bounds, regex ids).
 - HookServer limits carried over: 1 MB payload cap, recv timeout, 32-connection ceiling.
 - Polkit helpers (if any) follow impasto's argv1-annotation + `auth_self_keep` + sanitized-input pattern.
