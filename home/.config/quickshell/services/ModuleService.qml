@@ -56,6 +56,7 @@ Singleton {
         { id: "calendar",      name: "Calendar",      bar: true,  width: 340, height: 330 },
         { id: "notes",         name: "Notes",         bar: false, width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
         { id: "tasks",         name: "Tasks",         bar: false, width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
+        { id: "agent",         name: "Agents",        bar: true,  width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
         { id: "photo",         name: "Photo",         bar: false, width: 356, height: 150 },
         { id: "spectrum",      name: "Spectrum",      bar: false, width: 0,   height: 0 },
         { id: "lyrics",        name: "Lyrics",        bar: false, width: 0,   height: 0 },

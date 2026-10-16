@@ -57,6 +57,7 @@ singleton GithubService      1.0 services/GithubService.qml
 singleton PackagesService    1.0 services/PackagesService.qml
 singleton ProfileService     1.0 services/ProfileService.qml
 singleton VersionService     1.0 services/VersionService.qml
+singleton MeekoService      1.0 services/MeekoService.qml
 
 Card             1.0 components/Card.qml
 ColorSwatch      1.0 components/ColorSwatch.qml
@@ -144,6 +145,7 @@ StatsModule      1.0 bar/modules/StatsModule.qml
 UpdatesModule    1.0 bar/modules/UpdatesModule.qml
 NotesModule      1.0 bar/modules/NotesModule.qml
 NotificationsModule 1.0 bar/modules/NotificationsModule.qml
+AgentModule      1.0 bar/modules/AgentModule.qml
 ChipFace         1.0 bar/modules/ChipFace.qml
 
 SettingsWindow        1.0 settings/SettingsWindow.qml
@@ -200,4 +202,6 @@ NightLightDetail 1.0 bar/island/NightLightDetail.qml
 BrightnessDetail 1.0 bar/island/BrightnessDetail.qml
 TrayMenuPanel    1.0 bar/island/TrayMenuPanel.qml
 BluetoothDetail  1.0 bar/island/BluetoothDetail.qml
+AgentPanel       1.0 bar/island/AgentPanel.qml
+ApprovalCard     1.0 bar/island/controls/ApprovalCard.qml
 Commands         1.0 Commands.qml

@@ -253,7 +253,7 @@ Scope {
 
         readonly property var names: ["launcher", "controls", "overview", "appearance", "palette",
             "stats", "session", "notes", "board", "keys", "packages",
-            "machines", "wifi", "bluetooth", "sound", "microphone", "brightness", "nightlight"]
+            "machines", "wifi", "bluetooth", "sound", "microphone", "brightness", "nightlight", "agent"]
 
         function open(name: string): string {
             if (names.indexOf(name) < 0)
@@ -558,16 +558,37 @@ Scope {
 
         function status(): string {
             return root.ok({
-                link: { state: "offline", rev: 0, hostVersion: null },
-                agents: [],
-                approvals: [],
-                dropCount: 0
+                link: {
+                    state: MeekoService.linkState,
+                    rev: MeekoService.rev,
+                    hostVersion: MeekoService.hostVersion || null
+                },
+                agents: MeekoService.agents.map(agent => ({
+                    id: agent.id,
+                    name: agent.name,
+                    status: agent.status,
+                    lastTs: agent.lastTs
+                })),
+                approvals: MeekoService.approvals.map(approval => ({
+                    entryId: approval.entryId,
+                    agentId: approval.agentId,
+                    question: approval.question,
+                    options: approval.options,
+                    ts: approval.ts
+                })),
+                usage: MeekoService.usage.map(u => ({
+                    provider: u.provider,
+                    used: u.used,
+                    limit: u.limit,
+                    resetsAt: u.resetsAt
+                })),
+                dropCount: MeekoService.dropCount
             })
         }
 
         function panel(): string {
-            // AgentPanel lands in Phase 3; stub keeps the verb shape stable.
-            return root.ok()
+            root.island?.open("agent")
+            return root.ok({ panel: "agent" })
         }
     }
 }

@@ -42,7 +42,8 @@ Item {
         updates: updatesModule,
         notes: notesModule,
         tasks: tasksModule,
-        notifications: notificationsModule
+        notifications: notificationsModule,
+        agent: agentModule
     })
 
     implicitWidth: holder.implicitWidth
@@ -71,4 +72,5 @@ Item {
     Component { id: notesModule;      NotesModule {} }
     Component { id: tasksModule;      TasksModule {} }
     Component { id: notificationsModule; NotificationsModule {} }
+    Component { id: agentModule;       AgentModule {} }
 }

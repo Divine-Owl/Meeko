@@ -104,6 +104,7 @@ Rectangle {
         board:      { width: TasksService.panelWidth, height: TasksService.panelHeight },
         // The key sheet's columns come from the compositor's bind list.
         keys:       { width: ShortcutService.sheetWidth, height: ShortcutService.sheetHeight },
+        agent:      { width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
         packages:   { width: PackagesService.panelWidth, height: PackagesService.panelHeight },
         module:     root.moduleSize,
         // A tray item's menu, a row per entry.
@@ -176,6 +177,7 @@ Rectangle {
         board: boardPanel,
         keys: keysPanel,
         packages: packagesPanel,
+        agent: agentPanel,
         module: moduleDetail,
         tray: trayMenu
     })
@@ -645,6 +647,11 @@ Rectangle {
     Component {
         id: packagesPanel
         PackagesPanel { onClosed: root.close() }
+    }
+
+    Component {
+        id: agentPanel
+        AgentPanel { onClosed: root.close() }
     }
 
     // A module asking for a panel: the arcade's detail opening the arcade.
