@@ -3,10 +3,19 @@
 # Phase 1 gate: the imported quickshell/hypr/system trees must be byte-identical
 # to refs/impasto (the pinned upstream input). No additions, no omissions, no
 # edits — this is the verbatim import that CR&S pass 1 audits as "mechanical only."
+#
+# UPSTREAM_REFS may override the upstream input directory — used when this script
+# runs inside a detached worktree, whose gitignored refs/ tree is absent
+# (see CR&S's pass-2 method). Unset it to use the default path. A missing or
+# non-directory path fails loudly rather than silently degrading the check.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-UPSTREAM="$REPO_ROOT/refs/impasto"
+UPSTREAM="${UPSTREAM_REFS:-$REPO_ROOT/refs/impasto}"
+if [ ! -d "$UPSTREAM" ]; then
+    echo "import.tree: UPSTREAM_REFS is not a directory: $UPSTREAM" >&2
+    exit 2
+fi
 
 fail=0
 
