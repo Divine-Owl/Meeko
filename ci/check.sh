@@ -174,7 +174,19 @@ else
     run_or_fail "cargo test" cargo test --manifest-path "$cargo_manifest"
 fi
 
-# ── 8. whitespace hygiene ───────────────────────────────────────────────
+# ── 8. contract tests (hookd vs mock host) ───────────────────────────────
+# Phase 2+: real hookd binary + mock Codync host + real unix socket.
+# Covers HOOKD-01..15, GATE-01..05, HOST-02/03, FLOW-01..03, PROJ-01..04, SEC-04.
+section "contract (hookd vs mock host)"
+if ! command -v node >/dev/null 2>&1; then
+    skip "contract" "node" "package: nodejs"
+elif [ -z "$cargo_manifest" ]; then
+    printf '   n/a  no Cargo.toml in tree yet (Phase 2+)\n'
+else
+    run_or_fail "contract" node tests/qa/phase2/contract.test.js
+fi
+
+# ── 9. whitespace hygiene ───────────────────────────────────────────────
 section "whitespace (git diff --check)"
 if out=$(git diff --check 2>&1) && [ -z "$out" ]; then
     pass "no whitespace errors in working tree"
