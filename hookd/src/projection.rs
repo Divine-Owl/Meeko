@@ -164,6 +164,21 @@ impl Projection {
         self.approvals.iter().find(|a| a.entry_id == entry_id)
     }
 
+    /// Local gate for respondApproval's optionId: the entry must be pending,
+    /// and a present option must exist in its projected options. Absent
+    /// option (None) passes only for an existing entry — the host treats a
+    /// missing option as its own default. Anything else is rejected before
+    /// any host call (spec §12).
+    pub fn option_is_pending(&self, entry_id: &str, option_id: Option<&str>) -> bool {
+        let Some(approval) = self.pending_approval(entry_id) else {
+            return false;
+        };
+        match option_id {
+            None => true,
+            Some(id) => approval.options.iter().any(|o| o.id == id),
+        }
+    }
+
     pub fn set_link(&mut self, state: LinkState) -> Push {
         self.link.state = state;
         Push::Link(self.link.clone())
@@ -307,12 +322,21 @@ fn parse_turn(entry: &Value) -> Option<Turn> {
     }
     // Preview: first line, truncated. The body is host-only (spec §5).
     let preview = str_at(entry, "preview");
-    let preview: String = preview.lines().next().unwrap_or("").chars().take(120).collect();
+    let preview: String = preview
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect();
     Some(Turn {
         id,
         agent_id,
         preview,
-        unread: entry.get("unread").and_then(Value::as_bool).unwrap_or(false),
+        unread: entry
+            .get("unread")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -431,6 +455,26 @@ mod tests {
         let mut p = Projection::new();
         assert!(p.apply(&json!({"type": "telepathy"})).is_empty());
         assert!(p.apply(&json!({"no": "type"})).is_empty());
+    }
+
+    #[test]
+    fn option_gate_membership() {
+        let mut p = Projection::new();
+        p.apply(&json!({"type": "accessRequests", "requests": [{
+            "entryId": "a", "botId": "b", "question": "q",
+            "options": [{"id": "yes", "label": "Yes"}, {"id": "no", "label": "No"}]
+        }]}));
+        // absent option = allowed (host default)
+        assert!(p.option_is_pending("a", None));
+        // projected members pass
+        assert!(p.option_is_pending("a", Some("yes")));
+        assert!(p.option_is_pending("a", Some("no")));
+        // unknown member rejected
+        assert!(!p.option_is_pending("a", Some("maybe")));
+        assert!(!p.option_is_pending("a", Some("")));
+        // stale entry rejects everything, including None
+        assert!(!p.option_is_pending("ghost", Some("yes")));
+        assert!(!p.option_is_pending("ghost", None));
     }
 
     #[test]

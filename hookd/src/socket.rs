@@ -59,7 +59,10 @@ pub async fn serve(
         if meta.file_type().is_socket() {
             std::fs::remove_file(sock_path).map_err(|e| format!("stale socket: {e}"))?;
         } else {
-            return Err(format!("{} exists and is not a socket", sock_path.display()));
+            return Err(format!(
+                "{} exists and is not a socket",
+                sock_path.display()
+            ));
         }
     }
     let listener = UnixListener::bind(sock_path).map_err(|e| format!("bind: {e}"))?;
@@ -71,7 +74,10 @@ pub async fn serve(
     eprintln!("meeko-hookd: listening on {}", sock_path.display());
 
     loop {
-        let (stream, _addr) = listener.accept().await.map_err(|e| format!("accept: {e}"))?;
+        let (stream, _addr) = listener
+            .accept()
+            .await
+            .map_err(|e| format!("accept: {e}"))?;
         // Connection cap: refuse immediately rather than queue (a restarted
         // shell must never starve the cap — dead clients are also dropped
         // by the per-connection idle timeout).
@@ -228,9 +234,7 @@ async fn handle(
 }
 
 async fn write_all(w: &mut tokio::net::unix::OwnedWriteHalf, s: &str) -> Result<(), String> {
-    w.write_all(s.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
+    w.write_all(s.as_bytes()).await.map_err(|e| e.to_string())?;
     w.write_all(b"\n").await.map_err(|e| e.to_string())?;
     w.flush().await.map_err(|e| e.to_string())
 }
@@ -244,7 +248,11 @@ fn precheck(line: &str) -> Result<(String, Value), (Option<Value>, String)> {
         return Err((id, "line_too_long".into()));
     }
     let verb = peek_verb(line).ok_or_else(|| (id.clone(), "bad_request".to_string()))?;
-    let cap = if verb == "send" { CAP_SEND } else { CAP_CONTROL };
+    let cap = if verb == "send" {
+        CAP_SEND
+    } else {
+        CAP_CONTROL
+    };
     if line.len() > cap {
         return Err((id, format!("{verb}_payload_too_large")));
     }
@@ -267,7 +275,12 @@ fn peek_id(line: &str) -> Option<Value> {
     let idx = line.find("\"id\"")?;
     let rest = &line[idx + 4..];
     let rest = rest.trim_start().strip_prefix(':')?.trim_start();
-    let num: i64 = rest.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()?;
+    let num: i64 = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()?;
     Some(json!(num))
 }
 
@@ -291,12 +304,7 @@ async fn dispatch(
     };
     let id = req.get("id").cloned().unwrap_or(Value::Null);
     let params = req.get("params").cloned().unwrap_or(Value::Null);
-    let args = |k: &str| {
-        params
-            .get(k)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    };
+    let args = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
 
     match verb.as_str() {
         "ping" => ok_envelope(id, json!({"pong": true})),
@@ -319,17 +327,28 @@ async fn dispatch(
             let Some(entry_id) = args("entryId") else {
                 return err_envelope(id, "bad_request");
             };
-            // Local projection gate: verdicts for stale/unknown entries are
-            // rejected here, never proxied to the host (CR&S audit item).
+            // optionId must be string-or-null and, when present, a member of
+            // the pending approval's projected options — arbitrary JSON never
+            // reaches the host call body (CR&S audit item 1).
+            let option_id = match params.get("optionId") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) => Some(s.as_str()),
+                Some(_) => return err_envelope(id, "bad_option"),
+            };
+            // Local projection gate: verdicts for stale/unknown entries and
+            // unknown options are rejected here, never proxied (spec §12).
             {
                 let proj = projection.read().await;
                 if proj.pending_approval(&entry_id).is_none() {
                     return err_envelope(id, "stale_entry");
                 }
+                if !proj.option_is_pending(&entry_id, option_id) {
+                    return err_envelope(id, "bad_option");
+                }
             }
             let body = json!({
                 "entryId": entry_id,
-                "optionId": params.get("optionId").cloned().unwrap_or(Value::Null),
+                "optionId": option_id.map(|s| Value::String(s.to_string())).unwrap_or(Value::Null),
             });
             match host.call("respondPermission", body).await {
                 Ok(_) => ok_envelope(id, json!({"asked": "respondPermission"})),
@@ -349,7 +368,10 @@ async fn dispatch(
                     return err_envelope(id, "unknown_bot");
                 }
             }
-            match host.call("send", json!({"botId": bot_id, "text": text})).await {
+            match host
+                .call("send", json!({"botId": bot_id, "text": text}))
+                .await
+            {
                 Ok(_) => ok_envelope(id, json!({"asked": "send"})),
                 Err(e) => err_envelope(id, e),
             }
