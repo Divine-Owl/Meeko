@@ -16,6 +16,11 @@
 #                                commits differ from refs/impasto BY DESIGN, so
 #                                this is not part of the standing gate — audit
 #                                runs it in a detached worktree at 71af2ed.
+#                                Detached worktrees lack the gitignored refs/,
+#                                so run it as:
+#                                  UPSTREAM_REFS=<clone>/refs/impasto ci/check.sh --import-check
+#                                The env var is the impasto dir itself, not the
+#                                refs root (the test's own header says so too).
 #   ci/check.sh --help
 #
 # MEEKO_CI=1 (set by the workflow) turns every "skip" into a failure, so a CI
@@ -34,7 +39,7 @@ for arg in "$@"; do
         --fast)        FAST=1 ;;
         --import-check) IMPORT=1 ;;
         -h|--help)
-            sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
