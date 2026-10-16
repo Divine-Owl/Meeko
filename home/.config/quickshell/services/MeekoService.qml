@@ -24,7 +24,7 @@ import "../theme"
 // AgentPanel, ApprovalCard) are thin readers — they never mutate state.
 //
 // Connection: native Quickshell Socket (in-process, zero extra resident
-// process). `connected: true` begins connecting; clearing it disconnects.
+// process). `connected: true` begins connecting; setting it false disconnects.
 // Reconnect uses a Timer — connection management, not data polling.
 Singleton {
     id: root
@@ -46,6 +46,9 @@ Singleton {
 
     // turns: map of agentId → array of Turn (for panel display)
     property var turns: ({})
+
+    // errors: map of entryId → error string for failed verdicts
+    property var errors: ({})
 
     // ── ESCAPE BOUNDARY ─────────────────────────────────────────────────────
     // Single boundary helper: every host-sourced string escaped exactly once
@@ -99,7 +102,6 @@ Singleton {
         repeat: false
         onTriggered: {
             if (root.linkState !== "online") {
-                // Toggle connected to force a reconnect
                 socket.connected = false
                 socket.connected = true
             }
@@ -157,6 +159,7 @@ Singleton {
     }
 
     // hookd responses: {id, ok, result|error}. No type field — correlate by id.
+    // On failure, set error per entry — do NOT resolve the approval.
     function handleResponse(msg: var): void {
         const id = msg.id
         if (id === undefined || id === null)
@@ -167,9 +170,9 @@ Singleton {
         delete root.pending[id]
         if (!msg.ok) {
             const error = msg.error ?? "unknown"
-            if (intent.type === "respondApproval")
-                root.applyApprovalResolve(intent.entryId)
-            console.warn(`MeekoService: ${intent.type} failed: ${error}`)
+            if (intent.type === "respondApproval") {
+                root.errors[intent.entryId] = error
+            }
         }
     }
 
@@ -233,6 +236,7 @@ Singleton {
 
     function applyApprovalResolve(entryId: string): void {
         root.approvals = root.approvals.filter(a => a.entryId !== entryId)
+        delete root.errors[entryId]
     }
 
     function applyUsage(u: var): void {

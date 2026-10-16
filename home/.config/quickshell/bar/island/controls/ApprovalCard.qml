@@ -32,8 +32,12 @@ ColumnLayout {
 
     // Pending = still in MeekoService.approvals. Resolved = gone (hookd
     // pushed approval.resolve after the host processed the verdict).
+    // Error = verdict rejected (stale_entry, peer_not_shell, etc.) — the
+    // card stays visible with an error message, never silently resolves.
     readonly property bool pending: MeekoService.approvals.some(
         a => a.entryId === root.entryId)
+    readonly property string error: MeekoService.errors[root.entryId] ?? ""
+    readonly property bool hasError: root.error !== ""
 
     spacing: Theme.cardRowGap
 
@@ -52,6 +56,7 @@ ColumnLayout {
     // ── OPTION BUTTONS ───────────────────────────────────────────────────────
 
     RowLayout {
+        visible: !root.hasError
         Layout.fillWidth: true
         spacing: 8
 
@@ -77,10 +82,20 @@ ColumnLayout {
         }
     }
 
+    // ── ERROR STATE ──────────────────────────────────────────────────────────
+
+    Text {
+        visible: root.hasError
+        text: MeekoService.escapeDisplay(root.error)
+        color: Theme.red
+        font.pixelSize: Theme.fontSizeSmall
+        font.weight: Font.Medium
+    }
+
     // ── RESOLVED STATE ───────────────────────────────────────────────────────
 
     Text {
-        visible: !root.pending
+        visible: !root.pending && !root.hasError
         text: "Resolved"
         color: Theme.textDim
         font.pixelSize: Theme.fontSizeSmall
