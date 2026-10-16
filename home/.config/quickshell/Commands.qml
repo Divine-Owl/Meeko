@@ -552,4 +552,22 @@ Scope {
             Quickshell.reload(false)
         }
     }
+
+    IpcHandler {
+        target: "meeko"
+
+        function status(): string {
+            return root.ok({
+                link: { state: "offline", rev: 0, hostVersion: null },
+                agents: [],
+                approvals: [],
+                dropCount: 0
+            })
+        }
+
+        function panel(): string {
+            // AgentPanel lands in Phase 3; stub keeps the verb shape stable.
+            return root.ok()
+        }
+    }
 }
