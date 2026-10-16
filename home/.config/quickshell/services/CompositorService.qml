@@ -437,9 +437,9 @@ Singleton {
     // with it, as the edge of a pane blurs what is under it.
     function applyGround(): void {
         root.groundSetter.command = ["hyprctl", "eval",
-            `hl.layer_rule({ name = "impasto-bar-blur", match = { namespace = "^(impasto-bar)$" }, blur = true, ignore_alpha = 0.12, enabled = ${
+            `hl.layer_rule({ name = "meeko-bar-blur", match = { namespace = "^(meeko-bar)$" }, blur = true, ignore_alpha = 0.12, enabled = ${
                 Theme.solid || SettingsService.gameMode ? "false" : "true"} }) `
-            + `hl.layer_rule({ name = "impasto-dock-blur", match = { namespace = "^(impasto-dock)$" }, blur = true, ignore_alpha = 0.12, enabled = ${
+            + `hl.layer_rule({ name = "meeko-dock-blur", match = { namespace = "^(meeko-dock)$" }, blur = true, ignore_alpha = 0.12, enabled = ${
                 root.dockSeeThrough && !SettingsService.gameMode ? "true" : "false"} })`]
         root.groundSetter.running = true
     }

@@ -73,7 +73,7 @@ PanelWindow {
         bottom: true
     }
 
-    WlrLayershell.namespace: "impasto-deck"
+    WlrLayershell.namespace: "meeko-deck"
     WlrLayershell.layer: root.editing ? WlrLayer.Overlay : WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 

@@ -1,4 +1,4 @@
-module QuickshellConfig
+module Meeko
 
 singleton Theme              1.0 theme/Theme.qml
 singleton Palettes           1.0 theme/Palettes.qml
@@ -199,7 +199,7 @@ GridSize         1.0 bar/island/controls/GridSize.qml
 Block            1.0 bar/island/controls/Block.qml
 BlockFace        1.0 bar/island/controls/BlockFace.qml
 TogglesBlock     1.0 bar/island/controls/TogglesBlock.qml
-ImpastoBlock     1.0 bar/island/controls/ImpastoBlock.qml
+MeekoBlock       1.0 bar/island/controls/MeekoBlock.qml
 PetBlock         1.0 bar/island/controls/PetBlock.qml
 ClockBlock       1.0 bar/island/controls/ClockBlock.qml
 GamesBlock       1.0 bar/island/controls/GamesBlock.qml
