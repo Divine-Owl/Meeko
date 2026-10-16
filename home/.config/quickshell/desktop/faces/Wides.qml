@@ -42,10 +42,7 @@ Item {
         weather: weatherWide,
         github: githubWide,
         stats: statsWide,
-        claude: claudeWide,
-        codex: codexWide,
         timer: timerWide,
-        pet: petWide,
         media: mediaWide,
         clock: clockWide,
         calendar: calendarWide,
@@ -220,107 +217,6 @@ Item {
         }
     }
 
-    Component {
-        id: claudeWide
-
-        WidgetFace {
-
-            ink: root.ink
-            label: "Claude"
-            reading: !ClaudeService.available ? "—"
-                : ClaudeService.sessionMeasured
-                ? ClaudeService.percent(ClaudeService.sessionFraction)
-                : ClaudeService.compact(ClaudeService.blockTokens)
-            note: !ClaudeService.available ? "no usage found"
-                : ClaudeService.sessionMeasured
-                ? `of this block · ${ClaudeService.compact(ClaudeService.blockTokens)}`
-                : `this block · ${ClaudeService.messages(ClaudeService.blockMessages)}`
-            extraShare: 0.42
-
-            ClaudeMark {
-                anchors.centerIn: parent
-                width: 32
-                height: 32
-                color: ClaudeService.tint
-            }
-
-            extra: [
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
-                    spacing: 8
-                    visible: ClaudeService.available
-
-                    UsageBar {
-
-                        trackColor: root.ink.raised
-                        width: parent.width
-                        progress: ClaudeService.gauge
-                        fillColor: ClaudeService.tint
-                    }
-
-                    Text {
-                        width: parent.width
-                        text: ClaudeService.resetsIn
-                        horizontalAlignment: Text.AlignRight
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: root.ink.muted
-                    }
-                }
-            ]
-        }
-    }
-
-    Component {
-        id: codexWide
-
-        WidgetFace {
-
-            ink: root.ink
-            label: "Codex"
-            reading: CodexService.figure
-            note: !CodexService.available ? "no usage found"
-                : CodexService.fullest ? `of the ${CodexService.fullestName}`
-                : "until Codex runs again"
-            extraShare: 0.42
-
-            CodexMark {
-                anchors.centerIn: parent
-                width: 32
-                height: 32
-                color: CodexService.tint
-            }
-
-            extra: [
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
-                    spacing: 8
-                    visible: CodexService.measured
-
-                    UsageBar {
-
-                        trackColor: root.ink.raised
-                        width: parent.width
-                        progress: CodexService.gauge
-                        fillColor: CodexService.tint
-                    }
-
-                    Text {
-                        width: parent.width
-                        text: CodexService.windowLine(CodexService.fullest)
-                        horizontalAlignment: Text.AlignRight
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: root.ink.muted
-                    }
-                }
-            ]
-        }
-    }
 
     // ── DETAILS ─────────────────────────────────────────────────────────────
 
@@ -702,34 +598,6 @@ Item {
         }
     }
 
-    Component {
-        id: petWide
-
-        WidgetFace {
-
-            ink: root.ink
-            label: PetService.name !== "" ? PetService.name : "Pet"
-            reading: PetService.hatched ? `Lv ${PetService.level}` : "Egg"
-            note: PetService.moodLine
-            extraShare: 0.4
-
-            RingIndicator {
-                anchors.fill: parent
-                thickness: 3
-                progress: PetService.progress
-                trackColor: root.ink.dim
-                fillColor: root.ink.text
-            }
-
-            extra: [
-                PetFace {
-                    anchors.centerIn: parent
-                    size: 56
-                    lively: true
-                }
-            ]
-        }
-    }
 
     // ── TIME ────────────────────────────────────────────────────────────────
 

@@ -40,8 +40,6 @@ Item {
         github: githubModule,
         stats: statsModule,
         updates: updatesModule,
-        pet: petModule,
-        games: gamesModule,
         notes: notesModule,
         tasks: tasksModule,
         notifications: notificationsModule
@@ -61,8 +59,6 @@ Item {
     Component { id: calendarModule; CalendarModule {} }
     Component { id: mediaModule;   MediaModule { compact: root.compact } }
     Component { id: timerModule;   TimerModule { compact: root.compact } }
-    Component { id: claudeModule;  ClaudeModule { compact: root.compact } }
-    Component { id: codexModule;   CodexModule { compact: root.compact } }
     Component { id: batteryModule; BatteryModule { compact: root.compact } }
     Component { id: volumeModule;     VolumeModule { compact: root.compact } }
     Component { id: brightnessModule; BrightnessModule { compact: root.compact } }
@@ -72,8 +68,6 @@ Item {
     Component { id: githubModule;     GithubModule {} }
     Component { id: statsModule;      StatsModule { compact: root.compact } }
     Component { id: updatesModule;    UpdatesModule {} }
-    Component { id: petModule;        PetModule { compact: root.compact } }
-    Component { id: gamesModule;      GamesModule {} }
     Component { id: notesModule;      NotesModule {} }
     Component { id: tasksModule;      TasksModule {} }
     Component { id: notificationsModule; NotificationsModule {} }

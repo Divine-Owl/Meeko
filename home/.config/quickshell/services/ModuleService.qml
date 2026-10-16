@@ -53,8 +53,6 @@ Singleton {
         { id: "github",        name: "GitHub",        bar: false, width: Theme.cardWidth, height: Theme.cardHeight(0, GithubService.cardGrid) },
         { id: "stats",         name: "System",        bar: true,  width: Theme.cardWidth, height: Theme.cardHeight(2, Theme.cardRowGap + 36) },
         { id: "updates",       name: "Updates",       bar: true,  width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
-        { id: "pet",           name: "Pet",           bar: true,  width: Theme.cardWidth, height: Theme.cardHeight(2, Theme.cardRowGap + 32) },
-        { id: "games",         name: "Games",         bar: false, width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
         { id: "calendar",      name: "Calendar",      bar: true,  width: 340, height: 330 },
         { id: "notes",         name: "Notes",         bar: false, width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
         { id: "tasks",         name: "Tasks",         bar: false, width: Theme.cardWidth, height: Theme.cardHeight(4, 0) },
@@ -73,7 +71,7 @@ Singleton {
     //
     // Every door of the control centre can go on the bar, under its name and
     // glyph, and so can the control centre itself and the capture surface.
-    // Not the statistics or the pet: on the bar those are modules, and a
+    // Not the statistics: on the bar those are modules, and a
     // button beside them would be the same piece without its figure. Alone in
     // a capsule, a button is drawn as a circle.
     //
@@ -122,16 +120,6 @@ Singleton {
     // A reading that polls keeps polling while a piece on the bar or a widget
     // on the desk shows it.
     function watch(id: string, on: bool): void {
-        if (id === "claude") {
-            if (on)
-                ClaudeService.subscribe()
-            else
-                ClaudeService.release()
-        } else if (id === "codex") {
-            if (on)
-                CodexService.subscribe()
-            else
-                CodexService.release()
         } else if (id === "weather") {
             if (on)
                 WeatherService.subscribe()
@@ -165,7 +153,7 @@ Singleton {
     // A state or a count (the network, the bell, the date, the pending
     // updates) has nothing to fill, so it keeps its symbol in either shape.
     readonly property var ringed: ["media", "timer", "claude", "codex", "battery", "volume",
-        "brightness", "stats", "pet"]
+        "brightness", "stats"]
 
     // A piece's own shape when it has one, the bar's when it does not.
     function shapeOf(id: string, own: var): string {
@@ -237,16 +225,8 @@ Singleton {
                 ? (MediaService.title || MediaService.identity || "Playing") : "Nothing playing"
         case "timer":
             return TimerService.running ? TimerService.display : "0:00"
-        case "claude":
-            if (ClaudeService.measured)
-                return `${Math.round(ClaudeService.sessionFraction * 100)}%`
-            return ClaudeService.blockTokens > 0 ? ClaudeService.compact(ClaudeService.blockTokens) : "0%"
-        case "codex":
-            return CodexService.measured ? `${Math.round(CodexService.gauge * 100)}%` : "—"
         case "stats":
             return `${StatsService.cpu.toFixed(0)}%`
-        case "pet":
-            return PetService.hatched ? `Lv ${PetService.level}` : "Egg"
         case "network":
             return NetworkService.connectionName
         case "bluetooth":
@@ -295,10 +275,6 @@ Singleton {
             break
         case "timer":
             return TimerService.running ? TimerService.tint : Theme.text
-        case "claude":
-            return ClaudeService.measured ? ClaudeService.tint : Theme.indicator
-        case "codex":
-            return CodexService.tint
         }
         return Theme.text
     }
@@ -477,20 +453,14 @@ Singleton {
                      height: Theme.cardHeight(Math.min(6, NotificationService.history.length) + 1, 0) }
         if (id === "updates")
             return { width: item.width, height: Theme.cardHeight(Math.min(3, UpdatesService.updates.length) + 1, 0) }
-        if (id === "games")
-            return { width: item.width, height: Theme.cardHeight(Math.min(3, GamesService.ranked.length) + 1, 0) }
         if (id === "notes")
             return { width: item.width, height: Theme.cardHeight(Math.min(3, NotesService.live.length) + 1, 0) }
         if (id === "tasks")
             return { width: item.width, height: Theme.cardHeight(Math.min(3, TasksService.queue.length) + 1, 0) }
-        if (id === "claude")
-            return { width: item.width, height: Theme.cardHeight(ClaudeService.rows, 0) }
         if (id === "battery")
             return { width: item.width, height: Theme.cardHeight(BatteryService.healthKnown ? 3 : 2, 0) }
         if (id === "volume")
             return { width: item.width, height: Theme.cardHeight(AudioService.cardRows, 0) }
-        if (id === "codex")
-            return { width: item.width, height: Theme.cardHeight(Math.max(1, CodexService.limits.length), 0) }
         if (id === "brightness")
             return { width: item.width,
                      height: Theme.cardHeight(Math.max(1, BrightnessService.dimmable.length), 0) }
@@ -545,13 +515,6 @@ Singleton {
             return true
         case "media":
             return MediaService.available
-        case "claude":
-            // Reading this constructs the lazy singleton, which runs its
-            // first query; it turns true a moment later.
-            return ClaudeService.available
-        case "codex":
-            // Only where Codex has written a log with its limits.
-            return CodexService.available
         case "battery":
             return BatteryService.available
         case "volume":
@@ -577,12 +540,6 @@ Singleton {
         case "updates":
             // False on a machine with neither checkupdates nor pacman.
             return UpdatesService.available
-        case "pet":
-            // `ready` is constant true; reading it builds the service, and
-            // the service's trickle runs while the pet is on the bar.
-            return PetService.ready
-        case "games":
-            return GamesService.ready
         case "notes":
             return NotesService.ready
         case "tasks":

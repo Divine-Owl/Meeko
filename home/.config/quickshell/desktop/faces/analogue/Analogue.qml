@@ -31,8 +31,6 @@ Item {
         github: githubFace,
         battery: batteryFace,
         stats: statsFace,
-        claude: claudeFace,
-        codex: codexFace,
         media: mediaFace,
         calendar: calendarFace,
         timer: timerFace,
@@ -42,8 +40,6 @@ Item {
         updates: updatesFace,
         network: networkFace,
         bluetooth: bluetoothFace,
-        pet: creatureFace,
-        games: gamesFace,
         photo: photoFace
     })
 
@@ -57,8 +53,6 @@ Item {
     Component { id: githubFace;     GithubFace     { family: root.family; ink: root.ink } }
     Component { id: batteryFace;    BatteryFace    { family: root.family; ink: root.ink } }
     Component { id: statsFace;      StatsFace      { family: root.family; ink: root.ink } }
-    Component { id: claudeFace;     ClaudeFace     { family: root.family; ink: root.ink } }
-    Component { id: codexFace;      CodexFace      { family: root.family; ink: root.ink } }
     Component { id: mediaFace;      MediaFace      { family: root.family; ink: root.ink } }
     Component { id: calendarFace;   CalendarFace   { family: root.family; ink: root.ink } }
     Component { id: timerFace;      TimerFace      { family: root.family; ink: root.ink } }
@@ -68,7 +62,5 @@ Item {
     Component { id: updatesFace;    UpdatesFace    { family: root.family; ink: root.ink } }
     Component { id: networkFace;    NetworkFace    { family: root.family; ink: root.ink } }
     Component { id: bluetoothFace;  BluetoothFace  { family: root.family; ink: root.ink } }
-    Component { id: creatureFace;   CreatureFace   { family: root.family; ink: root.ink } }
-    Component { id: gamesFace;      GamesFace      { family: root.family; ink: root.ink } }
     Component { id: photoFace;      PhotoFace      { family: root.family; ink: root.ink; row: root.row } }
 }

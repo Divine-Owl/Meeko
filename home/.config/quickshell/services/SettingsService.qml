@@ -814,7 +814,7 @@ Singleton {
         // GitHub user for the contributions widget; empty draws nothing.
         property string githubUser: ""
 
-        // One of `PetService.styles`: how the pet is drawn, everywhere it is
+        // One of the pet drawing styles: how the pet is drawn, everywhere it is
         // drawn.
         property string petStyle: "creature"
 

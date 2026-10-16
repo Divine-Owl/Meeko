@@ -110,8 +110,7 @@ Singleton {
             network: ["2x2", "4x2"],                bluetooth: ["2x2", "4x2"],
             weather: ["2x2", "4x2", "4x4", "8x2"],  stats: ["2x2", "4x2", "4x4"],
             github: ["2x2", "4x2", "8x2"],
-            updates: ["2x2", "4x2"],                pet: ["2x2", "4x2"],
-            games: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
+            updates: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
             notes: ["2x2", "4x2", "4x4", "8x2"],    tasks: ["2x2", "4x2", "4x4"],
             clock: ["2x2", "4x2", "8x2"],           photo: ["2x2", "4x2", "4x4", "8x2"],
             spectrum: ["4x2", "8x2", "4x4"]
@@ -124,8 +123,7 @@ Singleton {
             network: ["2x2", "4x2"],                bluetooth: ["2x2", "4x2"],
             weather: ["2x2", "4x2", "4x4", "8x2"],  stats: ["2x2", "4x2", "4x4"],
             github: ["2x2", "4x2", "8x2"],
-            updates: ["2x2", "4x2"],                pet: ["2x2", "4x2"],
-            games: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
+            updates: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
             notes: ["2x2", "4x2", "4x4", "8x2"],    tasks: ["2x2", "4x2", "4x4"],
             clock: ["2x2", "4x2", "4x4", "8x2"],    photo: ["2x2", "4x2", "4x4", "8x2"],
             spectrum: ["4x2", "8x2", "4x4"]
@@ -143,8 +141,7 @@ Singleton {
             network: ["2x2", "4x2"],                bluetooth: ["2x2", "4x2"],
             weather: ["2x2", "4x2", "8x2"],         stats: ["2x2", "4x2"],
             github: ["2x2", "4x2", "8x2"],
-            updates: ["2x2", "4x2"],                pet: ["2x2", "4x2"],
-            games: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
+            updates: ["2x2", "4x2"],                  calendar: ["2x2", "4x2", "4x4"],
             notes: ["2x2", "4x2", "4x4", "8x2"],    tasks: ["2x2", "4x2", "4x4"],
             clock: ["2x2", "4x2", "4x4", "8x2"],    photo: ["2x2", "4x2", "4x4", "8x2"],
             spectrum: ["4x2", "8x2", "4x4"]

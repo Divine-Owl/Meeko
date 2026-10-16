@@ -41,11 +41,7 @@ Item {
         weather: weatherSquare,
         github: githubSquare,
         stats: statsSquare,
-        claude: claudeSquare,
-        codex: codexSquare,
         timer: timerSquare,
-        pet: petSquare,
-        games: gamesSquare,
         media: mediaSquare,
         clock: clockSquare,
         calendar: calendarSquare,
@@ -238,50 +234,6 @@ Item {
     }
 
     Component {
-        id: claudeSquare
-
-        WidgetFace {
-
-            ink: root.ink
-            label: "Claude"
-            reading: !ClaudeService.available ? "—"
-                : ClaudeService.sessionMeasured
-                ? ClaudeService.percent(ClaudeService.sessionFraction)
-                : ClaudeService.compact(ClaudeService.blockTokens)
-            note: !ClaudeService.available ? "no usage found"
-                : (ClaudeService.sessionMeasured ? "of this block" : "this block")
-
-            ClaudeMark {
-                anchors.centerIn: parent
-                width: 32
-                height: 32
-                color: root.ink.text
-            }
-        }
-    }
-
-    Component {
-        id: codexSquare
-
-        WidgetFace {
-
-            ink: root.ink
-            label: "Codex"
-            reading: CodexService.figure
-            note: !CodexService.available ? "no usage found"
-                : CodexService.fullest ? `of the ${CodexService.fullestName}`
-                : "until Codex runs again"
-
-            CodexMark {
-                anchors.centerIn: parent
-                width: 32
-                height: 32
-                color: root.ink.text
-            }
-        }
-    }
-
-    Component {
         id: timerSquare
 
         WidgetFace {
@@ -300,61 +252,6 @@ Item {
                 progress: TimerService.progress
                 trackColor: root.ink.dim
                 fillColor: Theme.indicatorTimer
-            }
-        }
-    }
-
-    Component {
-        id: gamesSquare
-
-        WidgetFace {
-
-            ink: root.ink
-            readonly property var last: GamesService.entry(GamesService.lastPlayed)
-
-            label: "Games"
-            reading: last ? `${GamesService.bestOf(last.id)}` : "—"
-            note: last ? `${last.name} · best` : "Nothing played yet"
-
-            RingIndicator {
-                anchors.fill: parent
-                thickness: 3
-                progress: 0
-                trackColor: root.ink.dim
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "󰊗"
-                    font.family: Theme.fontMono
-                    font.pixelSize: 18
-                    color: root.ink.text
-                }
-            }
-        }
-    }
-
-    Component {
-        id: petSquare
-
-        WidgetFace {
-
-            ink: root.ink
-            label: PetService.name !== "" ? PetService.name : "Pet"
-            reading: PetService.hatched ? `Lv ${PetService.level}` : "Egg"
-            note: PetService.mood
-
-            RingIndicator {
-                anchors.fill: parent
-                thickness: 3
-                progress: PetService.progress
-                trackColor: root.ink.dim
-                fillColor: root.ink.text
-
-                PetFace {
-                    anchors.centerIn: parent
-                    size: 26
-                    lively: true
-                }
             }
         }
     }
