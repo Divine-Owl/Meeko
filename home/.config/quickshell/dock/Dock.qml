@@ -94,7 +94,7 @@ PanelWindow {
     implicitWidth: root.screen.width
     implicitHeight: root.screen.height
 
-    WlrLayershell.namespace: "impasto-dock"
+    WlrLayershell.namespace: "meeko-dock"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
     // It never reserves: windows pass under it, and the desktop keeps its

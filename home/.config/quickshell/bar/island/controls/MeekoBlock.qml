@@ -251,7 +251,7 @@ Card {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "impasto"
+                    text: "meeko"
                     font.family: Theme.fontSignature
                     font.pixelSize: 20
                     color: Theme.text

@@ -44,7 +44,7 @@ PanelWindow {
 
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "impasto-capture"
+    WlrLayershell.namespace: "meeko-capture"
     // Exclusive, or hovering another window takes the keyboard back and Escape
     // stops working.
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive

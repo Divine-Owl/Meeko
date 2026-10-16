@@ -73,9 +73,9 @@ PanelWindow {
         bottom: true
     }
 
-    // Namespace for layer rules, e.g. `layerrule = blur, impasto-desktop`. Not
+    // Namespace for layer rules, e.g. `layerrule = blur, meeko-desktop`. Not
     // set by default.
-    WlrLayershell.namespace: "impasto-desktop"
+    WlrLayershell.namespace: "meeko-desktop"
     // The widgets take the island's glass (`Theme.surfaceIn`).
     readonly property bool glassy: true
     readonly property string groundStyle: Theme.deskStyle
@@ -337,7 +337,7 @@ PanelWindow {
             bottom: true
         }
 
-        WlrLayershell.namespace: "impasto-desktop-backdrop"
+        WlrLayershell.namespace: "meeko-desktop-backdrop"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusionMode: ExclusionMode.Ignore
@@ -416,7 +416,7 @@ PanelWindow {
                 bottom: true
             }
 
-            WlrLayershell.namespace: "impasto-desktop-menu"
+            WlrLayershell.namespace: "meeko-desktop-menu"
             WlrLayershell.layer: WlrLayer.Top
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
             exclusionMode: ExclusionMode.Ignore

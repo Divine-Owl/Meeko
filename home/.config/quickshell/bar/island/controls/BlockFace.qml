@@ -43,7 +43,7 @@ Item {
         weather: weatherBlock,
         calendar: calendarBlock,
         notifications: notificationsBlock,
-        impasto: impastoBlock,
+        meeko: meekoBlock,
         pet: petBlock,
         clock: clockBlock,
         games: gamesBlock,
@@ -158,8 +158,8 @@ Item {
     }
 
     Component {
-        id: impastoBlock
-        ImpastoBlock {
+        id: meekoBlock
+        MeekoBlock {
             cols: root.shape.cols
             rows: root.shape.rows
         }
