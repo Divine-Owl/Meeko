@@ -103,12 +103,13 @@ impl Host {
             .header(CONTENT_TYPE, "application/json");
         let req = req
             .header(AUTHORIZATION, format!("Bearer {token}"))
-            .body(
-                http_body_util::Full::new(Bytes::from(body.to_string())).boxed(),
-            )
+            .body(http_body_util::Full::new(Bytes::from(body.to_string())).boxed())
             .map_err(|e| format!("build request: {e}"))?;
 
-        let mut res = sender.send_request(req).await.map_err(|e| format!("send: {e}"))?;
+        let mut res = sender
+            .send_request(req)
+            .await
+            .map_err(|e| format!("send: {e}"))?;
         if res.status() == StatusCode::UNAUTHORIZED {
             self.token.invalidate();
             return Err("host rejected token (401)".into());
@@ -146,7 +147,10 @@ impl Host {
                 .header(HOST, self.authority()),
             &token,
         );
-        let res = sender.send_request(req).await.map_err(|e| format!("send: {e}"))?;
+        let res = sender
+            .send_request(req)
+            .await
+            .map_err(|e| format!("send: {e}"))?;
         if res.status() == StatusCode::UNAUTHORIZED {
             self.token.invalidate();
             return Err("host rejected token (401)".into());
@@ -160,7 +164,9 @@ impl Host {
                 .map_err(|_| "stream idle".to_string())?;
             let Some(frame) = frame else { break };
             let frame = frame.map_err(|e| format!("stream: {e}"))?;
-            let Some(data) = frame.into_data().ok() else { continue };
+            let Some(data) = frame.into_data().ok() else {
+                continue;
+            };
 
             let text = String::from_utf8_lossy(&data);
             for raw in text.split('\n') {
@@ -187,16 +193,17 @@ impl Host {
                 let mut proj = projection.write().await;
                 let event_rev = event.get("rev").and_then(Value::as_i64).unwrap_or(since);
                 if event_rev - since > MAX_REV_GAP {
-                    eprintln!("meeko-hookd: rev gap {since}→{event_rev} > {MAX_REV_GAP}, full resync");
+                    eprintln!(
+                        "meeko-hookd: rev gap {since}→{event_rev} > {MAX_REV_GAP}, full resync"
+                    );
                     proj.reset();
                     drop(proj);
                     return Ok(0);
                 }
                 since = since.max(event_rev);
 
-                if !KNOWN_EVENTS.contains(
-                    &event.get("type").and_then(Value::as_str).unwrap_or(""),
-                ) {
+                if !KNOWN_EVENTS.contains(&event.get("type").and_then(Value::as_str).unwrap_or(""))
+                {
                     // Host newer than this build: keep projection, surface degraded.
                     let link = proj.set_link(crate::projection::LinkState::Degraded);
                     drop(proj);

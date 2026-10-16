@@ -21,10 +21,16 @@ impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigError::NonLoopbackHost(u) => {
-                write!(f, "refusing non-loopback CODYNC_HOST_URL {u} without MEEKO_TEST=1")
+                write!(
+                    f,
+                    "refusing non-loopback CODYNC_HOST_URL {u} without MEEKO_TEST=1"
+                )
             }
             ConfigError::MissingRuntimeDir => {
-                write!(f, "XDG_RUNTIME_DIR is not set and MEEKO_HOOKD_SOCKET was not given")
+                write!(
+                    f,
+                    "XDG_RUNTIME_DIR is not set and MEEKO_HOOKD_SOCKET was not given"
+                )
             }
         }
     }
@@ -87,7 +93,8 @@ impl Config {
         let socket_path = match env::var("MEEKO_HOOKD_SOCKET") {
             Ok(p) if !p.is_empty() => PathBuf::from(p),
             _ => {
-                let dir = env::var("XDG_RUNTIME_DIR").map_err(|_| ConfigError::MissingRuntimeDir)?;
+                let dir =
+                    env::var("XDG_RUNTIME_DIR").map_err(|_| ConfigError::MissingRuntimeDir)?;
                 PathBuf::from(dir).join("meeko-hookd.sock")
             }
         };
