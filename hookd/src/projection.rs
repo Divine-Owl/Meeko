@@ -61,6 +61,7 @@ pub struct Usage {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum LinkState {
     Online,
     Offline,

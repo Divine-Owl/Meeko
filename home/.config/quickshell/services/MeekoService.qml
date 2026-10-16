@@ -24,16 +24,16 @@ import "../theme"
 // AgentPanel, ApprovalCard) are thin readers — they never mutate state.
 //
 // Connection: native Quickshell Socket (in-process, zero extra resident
-// process). The socket path is set to connect; clearing it disconnects.
+// process). `connected: true` begins connecting; clearing it disconnects.
 // Reconnect uses a Timer — connection management, not data polling.
 Singleton {
     id: root
 
     // ── LINK STATE ───────────────────────────────────────────────────────────
 
-    readonly property string linkState: "offline"
-    readonly property int rev: 0
-    readonly property string hostVersion: ""
+    property string linkState: "offline"
+    property int rev: 0
+    property string hostVersion: ""
 
     // ── PROJECTION MIRROR ───────────────────────────────────────────────────
     // Bounded lists mirroring hookd's §5 entity map. Caps enforced here too
@@ -61,13 +61,15 @@ Singleton {
 
     // ── SOCKET CONNECTION ───────────────────────────────────────────────────
     // Native Quickshell Socket — in-process, no extra resident process.
-    // Setting `path` connects; clearing it disconnects.
+    // `connected: true` begins connecting; setting it false disconnects.
 
     readonly property string socketPath: Quickshell.env("MEEKO_HOOKD_SOCKET") || `${Quickshell.env("XDG_RUNTIME_DIR")}/meeko-hookd.sock`
 
     property int nextId: 1
+    property var pending: ({})
 
     readonly property Socket socket: Socket {
+        connected: true
         path: root.socketPath
 
         parser: SplitParser {
@@ -97,15 +99,16 @@ Singleton {
         repeat: false
         onTriggered: {
             if (root.linkState !== "online") {
-                // Toggle the path to force a reconnect
-                socket.path = ""
-                socket.path = root.socketPath
+                // Toggle connected to force a reconnect
+                socket.connected = false
+                socket.connected = true
             }
         }
     }
 
     // ── INCOMING MESSAGES ───────────────────────────────────────────────────
     // Every line from the socket is parsed and applied to the mirror.
+    // Two shapes: pushes (have `type`) and responses (have `id` + `ok`).
 
     function handleLine(line: string): void {
         const trimmed = (line ?? "").trim()
@@ -113,7 +116,10 @@ Singleton {
             return
         try {
             const msg = JSON.parse(trimmed)
-            root.applyMessage(msg)
+            if (msg.type)
+                root.applyMessage(msg)
+            else if (msg.id !== undefined)
+                root.handleResponse(msg)
         } catch (e) {
             // undecodable line: drop silently (spec §5)
         }
@@ -147,6 +153,23 @@ Singleton {
         case "link":
             root.applyLink(msg.link)
             break
+        }
+    }
+
+    // hookd responses: {id, ok, result|error}. No type field — correlate by id.
+    function handleResponse(msg: var): void {
+        const id = msg.id
+        if (id === undefined || id === null)
+            return
+        const intent = root.pending[id]
+        if (!intent)
+            return
+        delete root.pending[id]
+        if (!msg.ok) {
+            const error = msg.error ?? "unknown"
+            if (intent.type === "respondApproval")
+                root.applyApprovalResolve(intent.entryId)
+            console.warn(`MeekoService: ${intent.type} failed: ${error}`)
         }
     }
 
@@ -239,6 +262,7 @@ Singleton {
         if (root.linkState !== "online")
             return
         const id = root.nextId++
+        root.pending[id] = { type: verb, entryId: params?.entryId }
         const line = JSON.stringify({ id, verb, params: params ?? {} })
         socket.write(`${line}\n`)
         socket.flush()
