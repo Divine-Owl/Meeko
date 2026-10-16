@@ -1,0 +1,262 @@
+// ╭──────────────────────────────────────────────────────────────────────────╮
+// │                                                                          │
+// │   D O C K   S E C T I O N                                                │
+// │   dock · position, pinned apps and behaviour                             │
+// │                                                                          │
+// │   github.com/andreumassanet/impasto                                      │
+// │                                                                          │
+// ╰──────────────────────────────────────────────────────────────────────────╯
+
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+
+import "../theme"
+import "../services"
+import "../components"
+
+// Edge, size, behaviour and kept applications. Icon order is changed by
+// dragging on the dock itself.
+SettingsSection {
+    id: root
+
+    // Unused: this page has no parts, but `SettingsPanel` sets it on all pages.
+    property string tab: ""
+
+    readonly property var edges: [
+        { id: "bottom", label: Tr.t("Bottom") },
+        { id: "left", label: Tr.t("Left") },
+        { id: "right", label: Tr.t("Right") }
+    ]
+
+    readonly property var alignments: [
+        { id: "start", label: Tr.t("Start") },
+        { id: "center", label: Tr.t("Middle") },
+        { id: "end", label: Tr.t("End") }
+    ]
+
+    // Everything but the main switch is locked while the dock is off.
+    readonly property bool off: !SettingsService.dockEnabled
+
+    // The rows about more than one screen are not drawn on a desk with one.
+    readonly property int screens: Quickshell.screens.length
+    readonly property string offReason: Tr.t("The dock is off")
+
+    SettingGroup {
+        title: Tr.t("The dock")
+        note: Tr.t("Your kept and open applications, on one edge of the screen.")
+        hint: Tr.t("An empty dock is not drawn. Icons are reordered by dragging them on the dock itself, and the top edge is left to the bar.")
+
+        SettingRow {
+            label: Tr.t("Show the dock")
+
+            ToggleSwitch {
+                checked: SettingsService.dockEnabled
+                onToggled: checked => SettingsService.set("dockEnabled", checked)
+            }
+        }
+
+        // Each tile also draws the current alignment.
+        SettingTiles {
+            label: Tr.t("Edge")
+            locked: root.off
+            reason: root.offReason
+
+            Repeater {
+                model: root.edges
+
+                PreviewTile {
+                    id: tile
+
+                    required property var modelData
+
+                    caption: tile.modelData.label
+                    selected: SettingsService.dockEdge === tile.modelData.id
+                    onPicked: SettingsService.set("dockEdge", tile.modelData.id)
+
+                    // Schematic screen: the bar along the top, the dock on the
+                    // offered edge. Not to scale.
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 96
+                        height: 54
+                        radius: Theme.radiusSmall
+                        color: Theme.island
+                        border.color: Theme.islandBorder
+                        border.width: 1
+
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.top: parent.top
+                            anchors.topMargin: 4
+                            width: 26
+                            height: 4
+                            radius: Theme.radiusPill
+                            color: Theme.islandSurfaceHover
+                        }
+
+                        Rectangle {
+                            readonly property bool upright: tile.modelData.id !== "bottom"
+                            readonly property string alignment: SettingsService.dockAlignment
+
+                            width: upright ? 6 : 40
+                            height: upright ? 32 : 6
+                            radius: Theme.radiusPill
+                            color: Theme.accent
+
+                            x: tile.modelData.id === "left" ? 4
+                                : (tile.modelData.id === "right" ? parent.width - width - 4
+                                    : (alignment === "start" ? 4
+                                        : (alignment === "end" ? parent.width - width - 4
+                                            : (parent.width - width) / 2)))
+
+                            y: !upright ? parent.height - height - 4
+                                : (alignment === "start" ? 8
+                                    : (alignment === "end" ? parent.height - height - 4
+                                        : (parent.height - height) / 2))
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingRow {
+            label: Tr.t("Alignment")
+            locked: root.off
+            reason: root.offReason
+
+            SegmentedControl {
+                options: root.alignments
+                current: SettingsService.dockAlignment
+                onSelected: id => SettingsService.set("dockAlignment", id)
+            }
+        }
+    }
+
+    SettingGroup {
+        title: Tr.t("Look")
+        note: Tr.t("The capsule's ground, and the icon size everything on the dock scales with.")
+        hint: Tr.t("Background sets how opaque the classic capsule is; lower it to let the blurred wallpaper through.")
+
+        // The dock's own ground, or the bar's.
+        SettingTiles {
+            label: Tr.t("Ground")
+            reading: SettingsService.dockGround === "" ? Tr.t("As the bar")
+                : Theme.dockGlass ? Tr.t("The terminal's glass, over a blur") : Tr.t("Solid black")
+            locked: root.off
+            reason: root.offReason
+
+            Repeater {
+                model: [
+                    { id: "", label: "As the bar" },
+                    { id: "classic", label: "Classic" },
+                    { id: "glass", label: "Glass" }
+                ]
+
+                PreviewTile {
+                    id: groundTile
+
+                    required property var modelData
+
+                    stageHeight: 56
+                    caption: Tr.t(groundTile.modelData.label)
+                    selected: SettingsService.dockGround === groundTile.modelData.id
+                    onPicked: SettingsService.set("dockGround", groundTile.modelData.id)
+
+                    GroundSwatch {
+                        anchors.centerIn: parent
+                        style: groundTile.modelData.id === "" ? SettingsService.surfaceStyle
+                            : groundTile.modelData.id
+                    }
+                }
+            }
+        }
+
+        SettingSlider {
+            label: Tr.t("Icon size")
+            value: SettingsService.dockIconSize
+            from: 28
+            to: 72
+            stepSize: 2
+            unit: " px"
+            locked: root.off
+            reason: root.offReason
+            onMoved: value => SettingsService.set("dockIconSize", Math.round(value))
+        }
+
+        SettingSlider {
+            label: Tr.t("Background")
+            value: SettingsService.dockOpacity
+            from: 20
+            to: 100
+            stepSize: 5
+            unit: "%"
+            // A see-through ground sets it.
+            locked: root.off || !Theme.dockSolid
+            reason: root.off ? root.offReason : Tr.t("Choose the Classic ground above to change it")
+            onMoved: value => SettingsService.set("dockOpacity", Math.round(value))
+        }
+    }
+
+    SettingGroup {
+        title: Tr.t("Behaviour")
+        note: Tr.t("What else the dock shows, and which screens it is on.")
+        hint: Tr.t("The launcher button opens the island's launcher, and open applications appear after a divider while they run. Windows and widgets pass under the dock, so moving or hiding it moves nothing else.")
+
+        SettingRow {
+            label: Tr.t("Launcher button")
+            locked: root.off
+            reason: root.offReason
+
+            ToggleSwitch {
+                checked: SettingsService.dockLauncher
+                onToggled: checked => SettingsService.set("dockLauncher", checked)
+            }
+        }
+
+        SettingRow {
+            label: Tr.t("Open applications")
+            locked: root.off
+            reason: root.offReason
+
+            ToggleSwitch {
+                checked: SettingsService.dockRunning
+                onToggled: checked => SettingsService.set("dockRunning", checked)
+            }
+        }
+
+        SettingRow {
+            label: Tr.t("On every screen")
+            reading: SettingsService.dockEverywhere
+                ? Tr.t("One on each, all showing the same")
+                : Tr.t("Only on the screen you are on")
+            locked: root.off || root.screens < 2
+            reason: root.off ? root.offReason : Tr.t("Only one screen is on")
+
+            ToggleSwitch {
+                checked: SettingsService.dockEverywhere
+                onToggled: checked => SettingsService.set("dockEverywhere", checked)
+            }
+        }
+
+        SettingRow {
+            label: Tr.t("Hide until pointed at")
+            locked: root.off
+            reason: root.offReason
+
+            ToggleSwitch {
+                checked: SettingsService.dockAutohide
+                onToggled: checked => SettingsService.set("dockAutohide", checked)
+            }
+        }
+    }
+
+    // Not locked while the dock is off: the launcher uses this list too.
+    SettingGroup {
+        title: Tr.t("Kept on it")
+        note: Tr.t("These stay whether they are running or not, and they lead the launcher's list too.")
+        hint: Tr.t("Their order is set by dragging them on the dock, and right-clicking a dock icon also keeps or removes it. The launcher uses this list too, so it stays editable with the dock off.")
+
+        KeptApplications {}
+    }
+}
