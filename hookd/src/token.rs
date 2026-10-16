@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+/// Maximum accepted token file size (4 KiB). Tokens are short bearer
+/// strings; anything larger is either corrupt or an attempted memory-exhaustion
+/// DoS via a replaced/rotated file.
+const MAX_TOKEN_LEN: u64 = 4096;
+
 /// Why a token file was refused. Safe to log — never contains file contents.
 #[derive(Debug)]
 pub enum TokenError {
@@ -24,6 +29,7 @@ pub enum TokenError {
     InsecureMode(u32),
     Unreadable(io::Error),
     Empty,
+    TooLarge { len: u64, max: u64 },
 }
 
 impl std::fmt::Display for TokenError {
@@ -40,6 +46,9 @@ impl std::fmt::Display for TokenError {
             }
             TokenError::Unreadable(e) => write!(f, "token file unreadable: {e}"),
             TokenError::Empty => write!(f, "token file empty"),
+            TokenError::TooLarge { len, max } => {
+                write!(f, "token file too large: {len} bytes (max {max})")
+            }
         }
     }
 }
@@ -89,14 +98,32 @@ impl Token {
             return Err(TokenError::InsecureMode(meta.mode() & 0o7777));
         }
 
+        if meta.len() > MAX_TOKEN_LEN {
+            return Err(TokenError::TooLarge {
+                len: meta.len(),
+                max: MAX_TOKEN_LEN,
+            });
+        }
+
         let mut buf = Vec::with_capacity(meta.len() as usize);
-        let mut f = fs::OpenOptions::new()
+        let f = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)
             .open(path)
             .map_err(TokenError::Unreadable)?;
         use io::Read;
-        f.read_to_end(&mut buf).map_err(TokenError::Unreadable)?;
+        // Defense-in-depth: cap at MAX_TOKEN_LEN + 1 so a file that grew
+        // between the metadata check and the open() is still bounded.
+        let n = f
+            .take(MAX_TOKEN_LEN + 1)
+            .read_to_end(&mut buf)
+            .map_err(TokenError::Unreadable)?;
+        if n as u64 > MAX_TOKEN_LEN {
+            return Err(TokenError::TooLarge {
+                len: n as u64,
+                max: MAX_TOKEN_LEN,
+            });
+        }
         let s = String::from_utf8_lossy(&buf);
         let token = s.trim().to_string();
         if token.is_empty() {
@@ -215,6 +242,31 @@ mod tests {
         ));
         let p = write_token(&d, "   \n", 0o600);
         assert!(matches!(Token::read_validated(&p), Err(TokenError::Empty)));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn rejects_oversized_file() {
+        let d = tmpdir("toolarge");
+        // Write MAX_TOKEN_LEN + 1 bytes of 'a' (no newline needed — the
+        // length check fires before any trimming).
+        let body = "a".repeat((MAX_TOKEN_LEN + 1) as usize);
+        let p = write_token(&d, &body, 0o600);
+        assert!(matches!(
+            Token::read_validated(&p),
+            Err(TokenError::TooLarge { .. })
+        ));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn accepts_exactly_max_size() {
+        let d = tmpdir("exactmax");
+        // Exactly MAX_TOKEN_LEN bytes — should pass the size gate.
+        let body = "a".repeat(MAX_TOKEN_LEN as usize);
+        let p = write_token(&d, &body, 0o600);
+        let (tok, _) = Token::read_validated(&p).unwrap();
+        assert_eq!(tok.len(), MAX_TOKEN_LEN as usize);
         let _ = fs::remove_dir_all(&d);
     }
 
