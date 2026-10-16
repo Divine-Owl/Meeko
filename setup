@@ -1,0 +1,1605 @@
+#!/usr/bin/env bash
+# ╭──────────────────────────────────────────────────────────────────────────╮
+# │                                                                          │
+# │   S E T U P                                                              │
+# │   the installer · packages, the files, the system, the plugins           │
+# │                                                                          │
+# │   github.com/andreumassanet/impasto                                      │
+# │                                                                          │
+# ╰──────────────────────────────────────────────────────────────────────────╯
+
+# `./setup help` lists the verbs. Bash rather than Python: Python is not in
+# `base`, and this has to run before anything else is installed.
+
+set -euo pipefail
+
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/impasto
+BACKUPS=$STATE/backups/$(date +%Y%m%d-%H%M%S)
+APPLIED=$STATE/applied
+THEME_MANAGER=$REPO/home/.config/quickshell/scripts/theme_manager.py
+COMPOSITOR=$REPO/home/.config/quickshell/scripts/compositor.py
+
+# Where `system/` lands. Only a test points it anywhere but `/`, and a root
+# this user can write to is written without sudo.
+ROOT=${IMPASTO_ROOT:-/}
+ROOT=${ROOT%/}
+
+DRY=0
+NOCONFIRM=0
+WATCH=0
+RESTORE=0
+FILES_ARGS=()
+QUIET=0
+HELPER=
+SKIP_PACKAGES=0
+SKIP_SYSTEM=0
+SKIP_PLUGINS=0
+SKIP_EXTRAS=0
+SUDO=
+SOFT=
+# Whether the desk was up when this run began: an install can take it down.
+SHELL_WAS_UP=0
+
+
+# ── OUTPUT ──────────────────────────────────────────────────────────────────
+#
+# Colour is the terminal's own here: this runs before there is a desk to ask
+# for a palette. Twenty-four bit where the terminal says it can, the sixteen a
+# console has otherwise, and none of it when the output is not a terminal or
+# NO_COLOR is set.
+
+ATTY=0
+COLOUR=0
+TRUECOLOUR=0
+if [[ -t 1 ]]; then ATTY=1; fi
+if (( ATTY )) && [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
+    COLOUR=1
+    case ${COLORTERM:-} in truecolor|24bit) TRUECOLOUR=1 ;; esac
+fi
+
+if (( TRUECOLOUR )); then
+    TEXT=$'\e[38;2;238;242;247m'
+    MUTED=$'\e[38;2;139;139;147m'
+    FAINT=$'\e[38;2;74;74;82m'
+    ACCENT=$'\e[38;2;206;142;54m'
+    WARN=$'\e[38;2;243;139;168m'
+    OFF=$'\e[0m'
+    BOLD=$'\e[1m'
+elif (( COLOUR )); then
+    TEXT=$'\e[97m'
+    MUTED=$'\e[37m'
+    FAINT=$'\e[90m'
+    ACCENT=$'\e[33m'
+    WARN=$'\e[31m'
+    OFF=$'\e[0m'
+    BOLD=$'\e[1m'
+else
+    TEXT= MUTED= FAINT= ACCENT= WARN= OFF= BOLD=
+fi
+
+# The wordmark, four rows of half blocks, one field per letter. The colour
+# runs left to right across it, the way paint comes off a loaded brush.
+MARK=(
+    '██  |██▄    ▄██  |███████▄  | ▄█████▄   |▄███████  |████████  |▄███████▄'
+    '██  |██▀█▄▄█▀██  |██    ██  |██     ██  |██▄▄▄▄▄   |   ██     |██     ██'
+    '██  |██  ▀▀  ██  |███████▀  |█████████  | ▀▀▀▀▀██  |   ██     |██     ██'
+    '██  |██      ██  |██        |██     ██  |███████▀  |   ██     |▀███████▀'
+)
+if (( TRUECOLOUR )); then
+    MARK_PAINT=($'\e[38;2;142;102;42m' $'\e[38;2;159;112;45m' $'\e[38;2;181;126;49m'
+                $'\e[38;2;203;140;53m' $'\e[38;2;217;154;64m' $'\e[38;2;228;167;76m'
+                $'\e[38;2;240;179;87m')
+else
+    MARK_PAINT=("$ACCENT" "$ACCENT" "$ACCENT" "$ACCENT" "$ACCENT" "$ACCENT" "$ACCENT")
+fi
+
+# Columns to draw in: what the terminal has, and never past the width of this
+# file's own header boxes. Nought where the output is not a terminal, where a
+# rule is short.
+width() {
+    local size
+    if (( ! ATTY )); then printf 0; return 0; fi
+    size=$(stty size 2>/dev/null </dev/tty) || size=
+    # shellcheck disable=SC2086
+    set -- $size
+    if [[ ${2:-} =~ ^[0-9]+$ ]] && (( $2 > 8 )); then
+        if (( $2 < 76 )); then printf '%s' "$2"; else printf 76; fi
+    else
+        printf 76
+    fi
+}
+
+# How long the install took, for the line that closes it.
+elapsed() {
+    if (( SECONDS >= 60 )); then printf '%dm %02ds' $(( SECONDS / 60 )) $(( SECONDS % 60 ))
+    else printf '%ds' "$SECONDS"; fi
+}
+
+dashes() {
+    local n=$1 out=
+    while (( n-- > 0 )); do out+='─'; done
+    printf '%s' "$out"
+}
+
+mark() {
+    local row letters line i
+    # The wordmark is 66 columns wide, and a narrower terminal gets the name
+    # spaced out instead of a wrapped drawing.
+    if (( $(width) < 70 )); then
+        printf '  %s%sI M P A S T O%s\n' "$BOLD" "$ACCENT" "$OFF"
+        return 0
+    fi
+    for row in "${MARK[@]}"; do
+        IFS='|' read -ra letters <<< "$row"
+        line=
+        for i in "${!letters[@]}"; do line+="${MARK_PAINT[i]}${letters[i]}"; done
+        printf '  %s%s\n' "$line" "$OFF"
+    done
+}
+
+# The opening screen. Printed once, and only for a person: a log, a pipe and
+# the `--noconfirm` of an unattended install get the plain lines alone.
+BANNERED=${IMPASTO_RELAUNCHED:-0}
+banner() {
+    if (( ! COLOUR || BANNERED )); then return 0; fi
+    BANNERED=1
+    printf '\n'
+    mark
+    printf '\n  %sa desk for Arch Linux and Hyprland%s   %s%s%s\n\n' \
+        "$MUTED" "$OFF" "$FAINT" "$(version)" "$OFF"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: ./setup <command> [options]
+
+  install     everything, in order: packages, the user folders, oh-my-zsh,
+              home/ into $HOME, system/ into /, the Hyprland plugins, and
+              the extras below once each — one that has to wait is tried
+              again by the next install or update
+  update      git pull, then install again with the same options
+  uninstall   remove every installed file that has not been edited since,
+              and put back what was in the way when it was installed
+
+  packages    install what packages/pacman.txt and packages/aur.txt list
+  sync        copy home/ into $HOME — how a change in the repository lands
+  system      copy system/ into /, and switch the login screen on where no
+              other display manager is (asks for a password)
+  plugins     build and enable the two Hyprland plugins with hyprpm
+
+  defaults    what opens which file, and dark GTK with the impasto icons
+  cursors     fetch the vector cursor and build it in the chosen colour
+  spotify     patch Spotify so it takes the palette (needs spicetify)
+  vscodium    install the editor's extensions and merge its settings
+  thunar      apply the file manager's settings and right-click menu
+  vesktop     tick the palette's theme in Vencord
+  face        unlock the lock screen with your face, where there is an
+              infrared camera: installs howdy-next and enrols you
+
+  files       the installed files you have edited or deleted, and each one
+              put back: files [list | restore | reset | keep] [path…], paths
+              as list prints them, under $HOME
+  check       the syntax checks CI runs
+  help        this
+
+Run ./setup with no command at a terminal to pick from a menu instead.
+
+Options:
+  --skip-packages     install, update: leave the packages alone
+  --skip-system       install, update: leave / alone
+  --skip-plugins      install, update: do not build the plugins
+  --skip-extras       install, update: leave the extras above alone
+  --aur-helper NAME   yay or paru. The one installed is used, and when there
+                      is neither, this one is built from the AUR (yay if unset)
+  --noconfirm         answer every question with its default
+  -n, --dry-run       say what would change, and change nothing
+  -w, --watch         sync: copy again every time a file under home/ is saved
+  --restore           install, update, sync, system: put back the installed
+                      files that were deleted here
+
+What lands in $HOME and / is a copy. A file edited in place is kept, and the
+repository's version is written beside it as <name>.new; a file deleted here
+stays deleted until --restore; whatever was in the way the first time is moved
+to ~/.local/state/impasto/backups.
+EOF
+}
+
+# A rule across the width, the stage's name in it, and on the right whatever
+# the caller has to say about it — the time it took, mostly.
+section() {
+    if (( QUIET )); then return 0; fi
+    local name=$1 note=${2:-} fill columns
+    columns=$(width)
+    if (( columns )); then
+        fill=$(( columns - 5 - ${#name} ))
+        if [[ -n $note ]]; then fill=$(( fill - ${#note} - 2 )); fi
+    else
+        fill=2
+    fi
+    if (( fill < 1 )); then fill=1; fi
+    printf '%s── %s%s%s %s' "$FAINT" "$TEXT$BOLD" "$name" "$OFF$FAINT" "$(dashes "$fill")"
+    if [[ -n $note ]]; then printf ' %s%s' "$MUTED" "$note"; fi
+    printf '%s\n' "$OFF"
+}
+
+# A line's first word is what happened, when it has one, and is written in the
+# accent so a long install can be read down its left edge. What follows a dash
+# is the reason, and is dimmer than the thing it explains.
+say() {
+    local line=$* word rest
+    if (( COLOUR )); then
+        word=${line%%' '*}
+        rest=${line#"$word"}
+        case $word in
+            ok|new|updated|replaced|removed|seeded|enabled|loaded|cloned|built|restored|reloaded|started|reboot|version)
+                line="$ACCENT$word$OFF$rest" ;;
+            kept|left|skipped*|missing*|nothing*|all|watching|would|not)
+                line="$MUTED$word$OFF$rest" ;;
+        esac
+        if [[ $line == *' — '* ]]; then
+            line="${line%% — *}$FAINT — ${line#* — }$OFF"
+        fi
+    fi
+    printf '  %s\n' "$line"
+}
+
+fail() { printf '%ssetup:%s %s\n' "$WARN" "$OFF" "$*" >&2; exit 1; }
+
+# Every change to the machine goes through act, so --dry-run is handled in one
+# place. Callers report what happened (or would have) themselves.
+act() {
+    if (( DRY )); then return 0; fi
+    "$@"
+}
+
+ask() {
+    if (( NOCONFIRM )); then return 0; fi
+    local answer
+    read -rp "  $1 $FAINT[Y/n]$OFF " answer
+    [[ -z $answer || $answer == [Yy]* ]]
+}
+
+
+# ── FILES ───────────────────────────────────────────────────────────────────
+#
+# Both trees are copied, not linked, and a manifest records the hash of every
+# file written:
+#
+#   - a different file in the way the first time is moved to the backups;
+#   - a file unchanged since it was installed is replaced;
+#   - a file edited in place is kept, and the new version written as .new;
+#   - a file deleted after it was installed stays deleted, until --restore;
+#   - a file removed from the repository is deleted only if unedited;
+#   - a file setup did not install is never touched (e.g. generated themes).
+#
+# Changes under home/ reach $HOME through `sync`, or `sync --watch`.
+
+digest() { sha256sum < "$1" | cut -c1-64; }
+
+# Every file git would carry under a tree — tracked or not, never ignored, so
+# a __pycache__ lands nowhere — or every file, when this is not a checkout.
+files_in() {
+    local tree=$1 f
+    if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "$REPO" ls-files -z -co --exclude-standard -- "$tree" |
+            while IFS= read -r -d '' f; do
+                if [[ -f $REPO/$f && ! -L $REPO/$f ]]; then printf '%s\n' "${f#"$tree"/}"; fi
+            done
+    else
+        (cd "$REPO/$tree" && find . -type f -printf '%P\n')
+    fi
+}
+
+declare -A BEFORE=() AFTER=() LOOKED=() GONE=()
+
+# One writer at a time: `files`, run from Settings, and a `sync --watch` both
+# read the manifest, change it and write it back.
+MANIFEST_LOCK=
+manifest_lock() {
+    if (( DRY )); then return 0; fi
+    mkdir -p "$STATE"
+    exec {MANIFEST_LOCK}>"$STATE/manifest.lock"
+    flock "$MANIFEST_LOCK"
+}
+manifest_unlock() {
+    if [[ -n $MANIFEST_LOCK ]]; then exec {MANIFEST_LOCK}>&-; fi
+    MANIFEST_LOCK=
+}
+
+read_manifest() {
+    BEFORE=()
+    [[ -f $1 ]] || return 0
+    local sum path
+    while IFS=$'\t' read -r sum path; do BEFORE[$path]=$sum; done < "$1"
+}
+
+write_manifest() {
+    if (( DRY )); then return 0; fi
+    mkdir -p "$(dirname "$1")"
+    local path
+    for path in "${!AFTER[@]}"; do printf '%s\t%s\n' "${AFTER[$path]}" "$path"; done |
+        sort -t $'\t' -k2 > "$1.tmp"
+    mv -f "$1.tmp" "$1"
+}
+
+# Atomic (copy beside, then rename): Quickshell reloads on every write and
+# must never read half a file.
+put() {
+    local src=$1 dst=$2
+    act $SUDO install -D -m "$(stat -c %a "$src")" "$src" "$dst.impasto-new"
+    act $SUDO mv -f "$dst.impasto-new" "$dst"
+}
+
+# Moves whatever was in the way into the backups. Files under / are copied
+# instead, since the backup directory belongs to this user.
+keep_aside() {
+    local dst=$1 name=$2 n=1
+    if (( DRY )); then return 0; fi
+    mkdir -p "$(dirname "$BACKUPS/$name")"
+    # Two runs in one second share the directory: never over a kept file.
+    while [[ -e $BACKUPS/$name ]]; do name=${2}.$n; n=$(( n + 1 )); done
+    if [[ -n $SUDO ]]; then $SUDO cat "$dst" > "$BACKUPS/$name"; else mv "$dst" "$BACKUPS/$name"; fi
+}
+
+# Removes symlinks into the working tree left by a stow-style install. A
+# directory link must go before anything is copied through it, or the copy
+# lands back in the repository.
+unstow() {
+    local rel=$1 prefix= part
+    local -a parts
+    IFS=/ read -ra parts <<< "$rel"
+    for part in "${parts[@]}"; do
+        prefix=${prefix:+$prefix/}$part
+        [[ -z ${LOOKED[$prefix]:-} ]] || continue
+        LOOKED[$prefix]=1
+        [[ -L $HOME/$prefix ]] || continue
+        case $(readlink -m "$HOME/$prefix") in
+            "$REPO"/*)
+                act rm "$HOME/$prefix"
+                GONE[$prefix]=1
+                say "unlinked ~/$prefix — a symlink into the repository" ;;
+        esac
+    done
+}
+
+# Whether a path is under a link `unstow` removed (or would have, in a dry
+# run).
+gone() {
+    local prefix= part
+    local -a parts
+    IFS=/ read -ra parts <<< "$1"
+    for part in "${parts[@]}"; do
+        prefix=${prefix:+$prefix/}$part
+        [[ -z ${GONE[$prefix]:-} ]] || return 0
+    done
+    return 1
+}
+
+# Empty directories left behind, removed upwards — never the XDG roots, and
+# never a directory a package owns.
+tidy() {
+    local target=$1 dir=$2
+    while [[ -n $dir && $dir != . && $dir != / ]]; do
+        case $dir in
+            .config|.local|.local/share|.local/state|.cache|etc|usr|usr/share|var|var/lib) return 0 ;;
+        esac
+        if [[ -n $SUDO ]] && pacman -Qqo "$target/$dir" >/dev/null 2>&1; then return 0; fi
+        act $SUDO rmdir "$target/$dir" 2>/dev/null || return 0
+        dir=$(dirname "$dir")
+    done
+}
+
+# $1 tree, $2 destination, $3 manifest, $4 display prefix.
+deploy() {
+    local tree=$1 target=$2 manifest=$3 shown=$4
+    local rel src dst want have was said=0 declined=0
+    manifest_lock
+    read_manifest "$manifest"
+    AFTER=()
+    while IFS= read -r rel; do
+        src=$REPO/$tree/$rel
+        dst=$target/$rel
+        if [[ $tree == home ]]; then unstow "$rel"; fi
+        want=$(digest "$src")
+        AFTER[$rel]=$want
+        if [[ $tree == home ]] && gone "$rel"; then
+            put "$src" "$dst"; say "new      $shown$rel"; said=1
+        elif [[ -L $dst ]]; then
+            keep_aside "$dst" "$tree/$rel"; put "$src" "$dst"
+            say "replaced $shown$rel — the link that was there is in the backups"; said=1
+        elif [[ ! -e $dst ]]; then
+            if [[ -n ${BEFORE[$rel]:-} ]] && (( ! RESTORE )); then
+                declined=$(( declined + 1 ))    # installed once, deleted since
+                continue
+            fi
+            put "$src" "$dst"; say "new      $shown$rel"; said=1
+        else
+            have=$(digest "$dst")
+            [[ $have != "$want" ]] || continue
+            was=${BEFORE[$rel]:-}
+            if [[ -z $was ]]; then
+                keep_aside "$dst" "$tree/$rel"; put "$src" "$dst"
+                say "replaced $shown$rel — the old one is in the backups"; said=1
+            elif [[ $have == "$was" ]]; then
+                put "$src" "$dst"; say "updated  $shown$rel"; said=1
+            elif [[ $want == "$was" ]]; then
+                continue    # edited locally, nothing new in the repository
+            elif [[ ! -f $dst.new ]] || [[ $(digest "$dst.new") != "$want" ]]; then
+                put "$src" "$dst.new"
+                say "kept     $shown$rel — edited here; the repository's is beside it as .new"; said=1
+            fi
+        fi
+    done < <(files_in "$tree" | sort)
+
+    for rel in "${!BEFORE[@]}"; do
+        [[ -z ${AFTER[$rel]:-} ]] || continue
+        dst=$target/$rel
+        if [[ -f $dst && ! -L $dst ]] && [[ $(digest "$dst") == "${BEFORE[$rel]}" ]]; then
+            act $SUDO rm -f "$dst"
+            tidy "$target" "$(dirname "$rel")"
+            say "removed  $shown$rel"; said=1
+        elif [[ -e $dst ]]; then
+            say "left     $shown$rel — gone from the repository, but edited here"; said=1
+        fi
+    done
+
+    if (( declined )); then
+        local verb=sync
+        if [[ $tree == system ]]; then verb=system; fi
+        say "skipped  $declined deleted here — ./setup $verb --restore puts them back"; said=1
+    fi
+    write_manifest "$manifest"
+    manifest_unlock
+    if (( ! said && ! QUIET )); then say 'nothing to do'; fi
+}
+
+# First-run assets, written only when missing so the shell's own output wins:
+# the greeting scenes (rendered once in a fixed palette) and a minimal
+# `impasto` icon theme, because GTK falls back to hicolor, with no icons, when
+# settings.ini names a theme that does not exist. The stamp marks the
+# directory as the palette push's to replace.
+seed() {
+    local state=${XDG_STATE_HOME:-$HOME/.local/state}/quickshell
+    local icons=${XDG_DATA_HOME:-$HOME/.local/share}/icons/impasto
+    if [[ ! -e $state/greeting.gif || ! -f $state/greeting ]]; then
+        if ! command -v magick >/dev/null && ! command -v convert >/dev/null; then
+            say "skipped  the greeting's scenes — ImageMagick is not installed"
+        elif act python3 "$HOME/.config/quickshell/scripts/greeting.py" seed; then
+            say "seeded   the greeting's scenes"
+        else
+            say "skipped  the greeting's scenes — greeting.py seed failed"
+        fi
+    fi
+    if [[ ! -f $icons/index.theme ]]; then
+        act mkdir -p "$icons"
+        if (( ! DRY )); then
+            printf '%s\n' '[Icon Theme]' 'Name=impasto' 'Inherits=Papirus-Dark,Adwaita,hicolor' \
+                'Example=folder' 'Directories=' > "$icons/index.theme"
+        fi
+        say "seeded   the impasto icon theme"
+    fi
+    if [[ -d $icons ]]; then act touch "$icons/impasto.colour"; fi
+}
+
+# Quickshell reloads itself when one of its files changes, and a reload that
+# starts while the copy is still going never sees the files after it. Once
+# everything has landed, a running shell is asked to reload again.
+reload_shell() {
+    local rel answer
+    if (( DRY )) || ! command -v qs >/dev/null; then return 0; fi
+    for rel in "${!AFTER[@]}" "${!BEFORE[@]}"; do
+        [[ $rel == .config/quickshell/* && ${AFTER[$rel]:-} != "${BEFORE[$rel]:-}" ]] || continue
+        # Silent when it reloads. A shell still busy with the reload the copy
+        # started answers "Not ready", and is asked again until it takes it.
+        # A shell from before this target answers "Target not found" with a
+        # zero exit, and touching its entry file makes it reload on its own.
+        local tries
+        for (( tries = 0; tries < 40; tries++ )); do
+            answer=$(qs ipc call shell reload 2>&1) || return 0
+            [[ $answer == *'Not ready'* ]] || break
+            sleep 0.25
+        done
+        if [[ -n $answer ]]; then touch "$HOME/.config/quickshell/shell.qml"; fi
+        say 'reloaded the shell'
+        return 0
+    done
+}
+
+# The installed shell, running or not. A probe runs the repository's own copy
+# and answers a different path, so it is not the desk.
+shell_up() {
+    command -v qs >/dev/null || return 1
+    qs list 2>/dev/null | grep -qF "Config path: $HOME/.config/quickshell/shell.qml"
+}
+
+note_shell() {
+    if (( ! SHELL_WAS_UP )) && shell_up; then SHELL_WAS_UP=1; fi
+}
+
+# An install upgrades packages first, which replaces the libraries under a
+# running shell, and the shell dies on the reload the copy asks for. Nothing
+# else starts it again before the next session. Only a desk this run took
+# down is put back, and it is started through Hyprland the way autostart
+# does, so it takes the session's environment rather than this terminal's.
+restore_shell() {
+    if (( DRY )) || (( ! SHELL_WAS_UP )) || shell_up; then return 0; fi
+    [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && command -v hyprctl >/dev/null || return 0
+    # The dispatcher is read as Lua, the language the configuration is in.
+    act hyprctl dispatch 'hl.dsp.exec_cmd("qs -d")' >/dev/null
+    say 'started  the shell'
+}
+
+# What starting anything again does not fix: a kernel whose modules are no
+# longer on disk, and a session running on libraries that have been replaced.
+reboot_notice() {
+    local hypr
+    if [[ ! -d /usr/lib/modules/$(uname -r) ]]; then
+        say 'reboot when you can: the running kernel is no longer on disk'
+        return 0
+    fi
+    hypr=$(pgrep -x Hyprland | head -1) || return 0
+    if [[ -n $hypr ]] && grep -qE '\.so[^ ]* \(deleted\)' "/proc/$hypr/maps" 2>/dev/null; then
+        say 'reboot when you can: this session runs on libraries that have been replaced'
+    fi
+}
+
+
+# ── VERBS ───────────────────────────────────────────────────────────────────
+
+# The version this checkout is: a release tag, or the tag and the commits
+# since it (with -dirty when the working tree has edits).
+version() {
+    git -C "$REPO" describe --tags --always --dirty 2>/dev/null || echo unknown
+}
+
+# The tree of the checkout as a sync copies it, edits included: what a later
+# commit of those same edits is recognised by, so it is not offered again.
+synced_tree() {
+    local index
+    index=$(mktemp) || return 0
+    cp "$(git -C "$REPO" rev-parse --path-format=absolute --git-path index)" "$index" 2>/dev/null
+    GIT_INDEX_FILE=$index git -C "$REPO" add -A 2>/dev/null \
+        && GIT_INDEX_FILE=$index git -C "$REPO" write-tree 2>/dev/null
+    rm -f "$index"
+}
+
+# ── YOUR CHANGES ────────────────────────────────────────────────────────────
+#
+# What Settings → System shows and acts on, for the files under $HOME: the
+# installed files deleted since, and the ones edited since, each with whether
+# a newer version waits beside it as .new.
+#
+#   list      JSON: { "deleted": [path…], "edited": [{ "path", "waiting" }…] }
+#   restore   puts a deleted file back
+#   reset     the repository's version over yours, yours kept in the backups
+#   keep      yours stays, and the version beside it is taken as seen
+
+json_string() {
+    local text=${1//\\/\\\\}
+    text=${text//\"/\\\"}
+    printf '"%s"' "$text"
+}
+
+verb_files() {
+    local action=${FILES_ARGS[0]:-list} manifest=$STATE/home.manifest rel
+    local -a paths=("${FILES_ARGS[@]:1}")
+    case $action in
+        list)
+            read_manifest "$manifest"
+            files_list ;;
+        restore|reset|keep)
+            (( ${#paths[@]} )) || fail "files $action takes the paths list prints"
+            manifest_lock
+            read_manifest "$manifest"
+            AFTER=()
+            for rel in "${!BEFORE[@]}"; do AFTER[$rel]=${BEFORE[$rel]}; done
+            for rel in "${paths[@]}"; do files_one "$action" "$rel"; done
+            write_manifest "$manifest"
+            manifest_unlock ;;
+        *)       fail "files takes list, restore, reset or keep" ;;
+    esac
+}
+
+files_list() {
+    local -A have=()
+    local rel sum path line first=1
+    local -a present=()
+    for rel in "${!BEFORE[@]}"; do
+        if [[ -f $REPO/home/$rel && -f $HOME/$rel ]]; then present+=("$HOME/$rel"); fi
+    done
+    if (( ${#present[@]} )); then
+        while IFS= read -r line; do
+            sum=${line%% *}; path=${line#*  }
+            have[${path#"$HOME/"}]=$sum
+        done < <(printf '%s\0' "${present[@]}" | xargs -0 sha256sum)
+    fi
+    printf '{"deleted": ['
+    while IFS= read -r rel; do
+        [[ -n $rel && -f $REPO/home/$rel && ! -e $HOME/$rel ]] || continue
+        (( first )) || printf ', '; first=0
+        json_string "$rel"
+    done < <(printf '%s\n' "${!BEFORE[@]}" | sort)
+    printf '], "edited": ['
+    first=1
+    while IFS= read -r rel; do
+        [[ -n $rel ]] || continue
+        [[ ${have[$rel]} != "${BEFORE[$rel]}" ]] || continue
+        [[ ${have[$rel]} != "$(digest "$REPO/home/$rel")" ]] || continue
+        (( first )) || printf ', '; first=0
+        printf '{"path": %s, "waiting": %s}' "$(json_string "$rel")" \
+            "$([[ -f $HOME/$rel.new ]] && echo true || echo false)"
+    done < <(printf '%s\n' "${!have[@]}" | sort)
+    printf ']}\n'
+}
+
+files_one() {
+    local action=$1 rel=$2 src=$REPO/home/$2 dst=$HOME/$2
+    [[ -n $rel && -n ${BEFORE[$rel]:-} && -f $src ]] || { say "not      ~/$rel — not a file setup installed"; return 0; }
+    case $action in
+        restore)
+            [[ ! -e $dst ]] || { say "left     ~/$rel — it is there"; return 0; }
+            put "$src" "$dst"; say "restored ~/$rel" ;;
+        reset)
+            if [[ -e $dst ]] && [[ $(digest "$dst") != "$(digest "$src")" ]]; then
+                keep_aside "$dst" "home/$rel"
+                put "$src" "$dst"
+                say "restored ~/$rel — yours is in $BACKUPS"
+            else
+                put "$src" "$dst"
+                say "restored ~/$rel"
+            fi
+            act rm -f "$dst.new" ;;
+        keep)
+            act rm -f "$dst.new"
+            say "kept     ~/$rel" ;;
+    esac
+    AFTER[$rel]=$(digest "$src")
+}
+
+verb_sync() {
+    section home
+    SUDO=
+    deploy home "$HOME" "$STATE/home.manifest" '~/'
+    reload_shell
+    seed
+    # What Settings → System shows: the version, the branch, the checkout
+    # this copy came from — which is what its Update pulls and runs again —
+    # and the tree that was copied.
+    if (( ! DRY )); then
+        mkdir -p "$STATE"
+        printf '%s\n%s\n%s\n%s\n' "$(version)" \
+            "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" "$REPO" \
+            "$(synced_tree)" > "$STATE/version"
+    fi
+}
+
+# Re-syncs home/ on every save.
+verb_watch() {
+    command -v inotifywait >/dev/null || fail 'inotifywait is not installed (package: inotify-tools)'
+    verb_sync
+    say 'watching home/ — Ctrl+C to stop'
+    QUIET=1
+    while inotifywait -qq -r -e close_write,create,delete,move \
+        --exclude '/(\.git|__pycache__)/|\.impasto-new$|\.sw[po]$|~$' "$REPO/home"; do
+        LOOKED=() GONE=()
+        deploy home "$HOME" "$STATE/home.manifest" '~/'
+        reload_shell
+    done
+}
+
+# Copied because sddm reads its theme as its own user and cannot follow a link
+# into a 0700 home. Develop the greeter with `sddm-greeter-qt6 --test-mode`
+# against the working tree.
+verb_system() {
+    section system
+    SUDO=sudo
+    if [[ -w ${ROOT:-/} ]]; then SUDO=; fi
+    if [[ -n $SUDO ]] && (( ! DRY )); then sudo -v; fi
+    deploy system "$ROOT" "$STATE/system.manifest" '/'
+    # User pictures for the greeter and the lock screen. Never removed.
+    act $SUDO install -d -m 755 "$ROOT/var/lib/impasto/faces"
+    display_manager
+    i2c_dev
+    SUDO=
+}
+
+# ddcutil reaches external monitors through /dev/i2c-*. Its package loads
+# i2c-dev from the next boot and gives the seat's user the devices; this loads
+# it now, so the session that follows the install already has them.
+i2c_dev() {
+    [[ -z $ROOT ]] || return 0
+    command -v ddcutil >/dev/null || return 0
+    [[ -d /sys/module/i2c_dev ]] && return 0
+    if act $SUDO modprobe i2c-dev 2>/dev/null; then
+        say 'loaded   i2c-dev, for the brightness of external monitors'
+    else
+        say 'skipped  i2c-dev could not be loaded; it loads with the next boot'
+    fi
+}
+
+# The login screen needs a display manager to run it. sddm is enabled once,
+# and only where none is: one somebody chose keeps the machine. Enabled, not
+# started; the next boot brings it up.
+display_manager() {
+    applied display-manager && return 0
+    command -v sddm >/dev/null || return 0
+    local link=$ROOT/etc/systemd/system/display-manager.service
+    if [[ -e $link || -L $link ]]; then
+        say "kept     $(basename "$(readlink "$link")"), the display manager already enabled"
+    elif act $SUDO systemctl ${ROOT:+--root="$ROOT"} enable sddm.service >/dev/null 2>&1; then
+        say 'enabled  sddm, from the next boot'
+    else
+        say 'skipped  sddm could not be enabled'
+        return 0
+    fi
+    stamp display-manager
+}
+
+# Uses yay or paru if installed; otherwise offers to build one from the AUR.
+aur_helper() {
+    local -a yes=()
+    if (( NOCONFIRM )); then yes=(--noconfirm); fi
+    if [[ -z $HELPER ]]; then
+        for HELPER in yay paru; do
+            if command -v "$HELPER" >/dev/null; then return 0; fi
+        done
+        HELPER=yay
+    fi
+    if command -v "$HELPER" >/dev/null; then return 0; fi
+    if (( DRY )); then say "would build $HELPER-bin from the AUR"; return 0; fi
+    if ! ask "neither yay nor paru is installed — build $HELPER-bin from the AUR?"; then
+        say 'skipped: install these with an AUR helper'
+        return 1
+    fi
+    local tmp
+    tmp=$(mktemp -d)
+    git clone -q --depth=1 "https://aur.archlinux.org/$HELPER-bin.git" "$tmp/$HELPER-bin"
+    (cd "$tmp/$HELPER-bin" && makepkg -si "${yes[@]}")
+    rm -rf "$tmp"
+}
+
+# One name a line, `#` starting a comment anywhere.
+names() { sed 's/#.*//' "$1" | tr -s ' \t' '\n' | sed '/^$/d'; }
+
+# `pacman -T` also counts providers, so e.g. fnm-bin satisfies fnm.
+verb_packages() {
+    local -a yes=() want missing
+    if (( NOCONFIRM )); then yes=(--noconfirm); fi
+
+    section pacman
+    mapfile -t want < <(names "$REPO/packages/pacman.txt")
+    mapfile -t missing < <(pacman -T "${want[@]}" || true)
+    # With the system upgraded in the same transaction: against a stale
+    # database a new name is not found, and a file moving between packages
+    # (hyprpm out of hyprland) needs both at once.
+    if (( ${#missing[@]} )); then
+        say "missing: ${missing[*]}"
+        act sudo pacman -Syu --needed "${yes[@]}" "${missing[@]}"
+    else
+        say "all ${#want[@]} installed"
+    fi
+
+    section aur
+    mapfile -t want < <(names "$REPO/packages/aur.txt")
+    mapfile -t missing < <(pacman -T "${want[@]}" || true)
+    if (( ! ${#missing[@]} )); then say "all ${#want[@]} installed"; return 0; fi
+    say "missing: ${missing[*]}"
+    aur_helper || return 0
+    act "$HELPER" -S --needed "${yes[@]}" "${missing[@]}"
+}
+
+# Creates the localised XDG folders (existing ones are never renamed). The
+# package's user unit only runs in systemd-started sessions, and captures
+# depend on user-dirs.dirs.
+folders() {
+    section 'user folders'
+    if command -v xdg-user-dirs-update >/dev/null; then
+        act xdg-user-dirs-update
+        say ok
+    else
+        say 'xdg-user-dirs is not installed (./setup packages)'
+    fi
+}
+
+# Cloned rather than installed with oh-my-zsh's script, which replaces
+# ~/.zshrc with its own template.
+omz() {
+    section oh-my-zsh
+    local omz=$HOME/.oh-my-zsh
+    local plugins=$omz/custom/plugins
+    if [[ ! -d $omz ]]; then
+        act git clone -q --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$omz"
+        say 'cloned oh-my-zsh'
+    fi
+    local name
+    for name in zsh-autosuggestions zsh-syntax-highlighting; do
+        if [[ ! -d $plugins/$name ]]; then
+            act git clone -q --depth=1 "https://github.com/zsh-users/$name" "$plugins/$name"
+            say "cloned $name"
+        fi
+    done
+    say ok
+}
+
+# hyprpm builds against the running Hyprland and keeps the .so in root's
+# /var/cache: it needs the session up, a terminal and a password. Run outside
+# the session, this leaves them to the first one: while PLUGINS_PENDING names
+# the checkout, autostart.lua opens a terminal on `./setup plugins`.
+PLUGINS_PENDING=$STATE/plugins-pending
+
+# The repositories are the two named below, so hyprpm's "Are you sure?" gets
+# an empty line, which it takes as yes.
+plugin() {
+    if ! hyprpm list 2>/dev/null | grep -q "$1"; then
+        act hyprpm add "$2" </dev/null
+    fi
+    act hyprpm enable "$1"
+    say "$1 ok"
+}
+
+# hyprpm asks sudo before every step and forgets it after each (`sudo -k`),
+# which is a password per step. For the build, a `sudo` that ignores -k goes
+# first in PATH, the password is asked once, and a refresh every minute
+# outlasts a long compile. Undone, and the timestamp dropped as hyprpm meant,
+# when the build ends or setup exits.
+SUDO_SHIM=
+SUDO_KEEP=
+
+hold_sudo() {
+    SUDO_SHIM=$(mktemp -d)
+    printf '#!/bin/sh\n[ "$1" = -k ] && exit 0\nexec %s "$@"\n' "$(command -v sudo)" > "$SUDO_SHIM/sudo"
+    chmod +x "$SUDO_SHIM/sudo"
+    trap release_sudo EXIT
+    sudo -v
+    while kill -0 $$ && sleep 60; do sudo -n -v || break; done 2>/dev/null &
+    SUDO_KEEP=$!
+    PATH=$SUDO_SHIM:$PATH
+}
+
+release_sudo() {
+    if [[ -n $SUDO_KEEP ]]; then
+        pkill -P "$SUDO_KEEP" 2>/dev/null || true
+        kill "$SUDO_KEEP" 2>/dev/null || true
+    fi
+    if [[ -n $SUDO_SHIM ]]; then
+        PATH=${PATH#"$SUDO_SHIM":}
+        rm -rf "$SUDO_SHIM"
+        sudo -k
+    fi
+    SUDO_SHIM= SUDO_KEEP=
+}
+
+verb_plugins() {
+    section 'hyprland plugins'
+    if ! hyprctl version >/dev/null 2>&1; then
+        if (( ! DRY )); then mkdir -p "$STATE"; printf '%s\n' "$REPO" > "$PLUGINS_PENDING"; fi
+        say 'built by the first Hyprland session: a terminal asks for your password there'
+        return 0
+    fi
+    say 'building shake to find and glass: your password, once'
+    if (( ! DRY )); then hold_sudo; fi
+    # The headers first, and a rebuild of what is there when Hyprland has
+    # changed under it, even by a package rebuild of the same version.
+    act hyprpm update
+    plugin dynamic-cursors https://github.com/virtcode/hypr-dynamic-cursors
+    plugin hyprglass https://github.com/hyprnux/hyprglass
+    act hyprpm reload
+    # hyprpm keys its headers on Hyprland's commit alone, so a rebuild of the
+    # same version against new libraries keeps stale ones and every plugin is
+    # refused, while `reload` still reports success. Only the list says so.
+    if (( ! DRY )) && hyprctl plugin list 2>/dev/null | grep -q '^no plugins loaded'; then
+        act hyprpm update -f
+        act hyprpm reload
+    fi
+    release_sudo
+    act rm -f "$PLUGINS_PENDING"
+}
+
+verb_install() {
+    SECONDS=0
+    note_shell
+    if (( ! SKIP_PACKAGES )); then verb_packages; fi
+    folders
+    omz
+    verb_sync
+    if (( ! SKIP_SYSTEM )); then verb_system; fi
+    if (( ! SKIP_PLUGINS )); then verb_plugins; fi
+    if (( ! SKIP_EXTRAS )); then extras; fi
+    section done "$(elapsed)"
+    restore_shell
+    if ! shell_up; then
+        say 'log out and in again: the desk starts with the next Hyprland session'
+    fi
+    reboot_notice
+}
+
+verb_update() {
+    section git
+    local before arg
+    before=$(version)
+    if git -C "$REPO" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+        act git -C "$REPO" pull --autostash --ff-only
+    else
+        say 'no upstream to pull from — installing what is here'
+    fi
+    # A pull that could not put your edits back leaves the conflict in the
+    # tree and still exits 0, and installing that copies the markers onto the
+    # desk. The edits are safe in the stash: resolve, `git stash drop`, and
+    # run update again.
+    if [[ -n $(git -C "$REPO" ls-files --unmerged 2>/dev/null) ]]; then
+        fail 'the pull left conflicts in the repository — your edits are in the stash. Resolve them, then run update again'
+    fi
+    if [[ $(version) != "$before" ]]; then say "version  $before → $(version)"; fi
+    # The pull may have changed this script, so the install runs from the
+    # new copy, with the same options.
+    local -a args=()
+    for arg in "${ARGS[@]}"; do
+        if [[ $arg == update ]]; then arg=install; fi
+        args+=("$arg")
+    done
+    IMPASTO_RELAUNCHED=1 exec "$REPO/setup" "${args[@]}"
+}
+
+# Removes every installed file that is unedited; edited files are listed and
+# left. Backups are kept.
+remove_tree() {
+    local tree=$1 target=$2 manifest=$3 shown=$4 rel dst
+    section "$tree"
+    read_manifest "$manifest"
+    if (( ! ${#BEFORE[@]} )); then say 'nothing installed'; return 0; fi
+    for rel in "${!BEFORE[@]}"; do
+        dst=$target/$rel
+        if [[ -f $dst && ! -L $dst ]] && [[ $(digest "$dst") == "${BEFORE[$rel]}" ]]; then
+            act $SUDO rm -f "$dst"
+            tidy "$target" "$(dirname "$rel")"
+        elif [[ -e $dst ]]; then
+            say "left     $shown$rel — edited here"
+        fi
+    done
+    act rm -f "$manifest"
+    say "removed ${#BEFORE[@]} files"
+}
+
+# Puts back what was moved aside, oldest backup first, wherever the path is
+# free again. Anything that cannot go back stays in the backups and is counted
+# in KEPT. A dry run removed nothing, so an unedited installed file counts as
+# free there.
+KEPT=0
+restore() {
+    local tree=$1 target=$2 shown=$3 dir f rel dst
+    for dir in "$STATE"/backups/*/"$tree"; do
+        [[ -d $dir ]] || continue
+        while IFS= read -r -d '' f; do
+            rel=${f#"$dir"/}
+            dst=$target/$rel
+            if [[ -e $dst || -L $dst ]]; then
+                if ! (( DRY )) || [[ -L $dst || ! -f $dst ]] \
+                    || [[ $(digest "$dst") != "${BEFORE[$rel]:-}" ]]; then
+                    KEPT=$((KEPT + 1))
+                    continue
+                fi
+            fi
+            if [[ -n $SUDO ]]; then
+                act $SUDO install -D -m "$(stat -c %a "$f")" "$f" "$dst"
+                act rm -f "$f"
+            else
+                act mkdir -p "$(dirname "$dst")"
+                act mv "$f" "$dst"
+            fi
+            say "restored $shown$rel"
+        done < <(find "$dir" \( -type f -o -type l \) -print0 | sort -z)
+    done
+}
+
+verb_uninstall() {
+    SUDO=
+    remove_tree home "$HOME" "$STATE/home.manifest" '~/'
+    restore home "$HOME" '~/'
+    SUDO=sudo
+    if [[ -w ${ROOT:-/} ]]; then SUDO=; fi
+    remove_tree system "$ROOT" "$STATE/system.manifest" '/'
+    restore system "$ROOT" '/'
+    SUDO=
+    if [[ -d $STATE/backups ]]; then act find "$STATE/backups" -depth -type d -empty -delete; fi
+    # So an install after this one sets the extras up again.
+    act rm -rf "$APPLIED" "$PLUGINS_PENDING"
+    if (( KEPT )); then say "not put back, the path is taken: $KEPT, kept in $STATE/backups"; fi
+}
+
+
+# ── EXTRAS ──────────────────────────────────────────────────────────────────
+#
+# What a copied file cannot hold: what opens which file, dark GTK, the cursor,
+# Thunar, VSCodium, Vesktop, Spotify and face unlock.
+# `install` sets each up once per machine, and one that cannot run yet is
+# skipped with the reason and tried again by the next install or update.
+# After that only its own verb runs it, so a setting changed in one of those
+# programs is kept.
+
+# Run on its own, a verb stops at a refusal; run from install, it says why
+# and the install carries on.
+refuse() {
+    if [[ -z $SOFT ]]; then fail "$*"; fi
+    say "skipped  — $* (./setup $SOFT, or the next update)"
+    return 1
+}
+
+# $1 the verb, $2 its function.
+soft() {
+    SOFT=$1
+    "$2" || true
+    SOFT=
+}
+
+applied() { [[ -f $APPLIED/$1 ]]; }
+stamp()   { if (( ! DRY )); then mkdir -p "$APPLIED"; touch "$APPLIED/$1"; fi; }
+
+# Spotify is patched again whenever an update of the player has put the
+# unpatched xpui.spa back.
+extras() {
+    applied defaults || soft defaults verb_defaults
+    if [[ ! -d $CURSOR_SEED ]]; then soft cursors verb_cursors; fi
+    applied thunar || soft thunar verb_thunar
+    applied vscodium || soft vscodium verb_vscodium
+    applied vesktop || soft vesktop verb_vesktop
+    applied face || soft face verb_face
+    if ! applied spotify || [[ -f /opt/spotify/Apps/xpui.spa ]]; then soft spotify verb_spotify; fi
+}
+
+# What opens which file, and whether GTK applications are dark: machine state,
+# so nothing is carried. A line is skipped whole when ~/.config/mimeapps.list
+# already names a default for any of its types, so a browser or viewer
+# somebody chose stays chosen and is not split with ours.
+DEFAULT_APPS=(
+    'imv.desktop image/jpeg image/png image/gif image/webp image/svg+xml'
+    'nvim.desktop text/plain application/json'
+    'thunar.desktop inode/directory'
+    'zen.desktop text/html application/pdf x-scheme-handler/http x-scheme-handler/https'
+)
+
+# Whether mimeapps.list names a default for a type. `xdg-mime query` cannot
+# tell: outside a desktop environment it answers from the cache of every
+# installed application, chosen or not.
+chosen() {
+    local list=${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list
+    [[ -f $list ]] || return 1
+    awk -v key="$1=" '/^\[/ { section = ($0 == "[Default Applications]") }
+        section && index($0, key) == 1 && length($0) > length(key) { found = 1 }
+        END { exit !found }' "$list"
+}
+
+# Whether a desktop entry is installed where xdg-open looks.
+has_entry() {
+    local dir IFS=:
+    for dir in ${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        if [[ -f $dir/applications/$1 ]]; then return 0; fi
+    done
+    return 1
+}
+
+verb_defaults() {
+    section defaults
+    command -v xdg-mime >/dev/null || refuse 'xdg-mime is not installed (package: xdg-utils)' || return
+    command -v gsettings >/dev/null || refuse 'gsettings is not installed (package: glib2)' || return
+    local line type taken
+    local -a words
+    for line in "${DEFAULT_APPS[@]}"; do
+        read -ra words <<< "$line"
+        if ! has_entry "${words[0]}"; then say "skipped  ${words[0]} — not installed"; continue; fi
+        taken=
+        for type in "${words[@]:1}"; do
+            if chosen "$type"; then taken=$type; break; fi
+        done
+        if [[ -n $taken ]]; then say "kept     what opens $taken, and the rest of its line"; continue; fi
+        act xdg-mime default "${words[0]}" "${words[@]:1}" || refuse 'xdg-mime failed' || return
+        say "${words[0]}  ${words[*]:1}"
+    done
+    act gsettings set org.gnome.desktop.interface color-scheme prefer-dark \
+        && act gsettings set org.gnome.desktop.interface icon-theme impasto \
+        || refuse 'gsettings failed' || return
+    # gsettings succeeds without saving anything when there is no session bus,
+    # so the value is read back.
+    if (( ! DRY )) && [[ $(gsettings get org.gnome.desktop.interface icon-theme) != "'impasto'" ]]; then
+        refuse 'the GTK settings did not persist: run it inside the session' || return
+    fi
+    say 'dark GTK, impasto icons'
+    stamp defaults
+}
+
+# Shake-to-find magnifies the pointer, so it has to be a vector cursor. Fetches
+# Bibata's SVGs into the state directory and has compositor.py recolour and
+# compile them into the seed env.lua names. The shell rebuilds it on wallpaper
+# changes after that.
+CURSOR_SEED=$HOME/.local/share/icons/impasto-cursor
+
+verb_cursors() {
+    section 'cursor shape'
+    command -v hyprcursor-util >/dev/null \
+        || refuse 'hyprcursor-util is not installed (package: hyprcursor)' || return
+    local src=${XDG_STATE_HOME:-$HOME/.local/state}/quickshell/cursor-src
+    act rm -rf "$src"
+    act mkdir -p "$src"
+    act git clone -q --depth=1 https://github.com/javigomezo/bibata-modern-classic-hyprcursor "$src" \
+        || refuse 'clone failed' || return
+    say "fetched Bibata's SVGs into the state directory"
+    act python3 "$COMPOSITOR" cursor palette 24 --seed || refuse 'build failed' || return
+    say 'built and set impasto-cursor'
+}
+
+# spicetify patches the colours into /opt/spotify, so the generated color.ini
+# does nothing until this runs. Not part of the palette push, which must not
+# restart the player. Also re-applies the theme after a Spotify update. The
+# first patch selects the theme; after that the choice is spicetify's.
+verb_spotify() {
+    section spotify
+    local config=${XDG_CONFIG_HOME:-$HOME/.config}
+    command -v spicetify >/dev/null || refuse 'spicetify is not installed' || return
+    [[ -f $config/spotify/prefs ]] \
+        || refuse 'open Spotify once first: spicetify needs the settings it writes' || return
+    [[ -f $config/spicetify/Themes/impasto/color.ini ]] \
+        || refuse 'no palette for Spotify yet: the shell writes one when it next themes the desk' || return
+    if [[ -n $SOFT ]] && pgrep -x spotify >/dev/null; then
+        refuse 'close Spotify first: patching it restarts it' || return
+    fi
+    if [[ ! -w /opt/spotify || ! -w /opt/spotify/Apps ]]; then
+        if (( ! DRY )) && ! ask 'spicetify patches /opt/spotify — make it writable (sudo chmod a+wr)?'; then
+            refuse '/opt/spotify is not writable: sudo chmod a+wr -R /opt/spotify' || return
+        fi
+        act sudo chmod a+wr /opt/spotify && act sudo chmod -R a+wr /opt/spotify/Apps \
+            || refuse 'could not make /opt/spotify writable' || return
+        say 'made /opt/spotify writable'
+    fi
+    # The package manager updates spicetify, and the palette push runs
+    # `spicetify refresh`, which would otherwise ask GitHub each time.
+    if ! applied spotify; then
+        act spicetify config current_theme impasto color_scheme base check_spicetify_update 0 >/dev/null \
+            || refuse 'spicetify could not select the theme' || return
+    fi
+    act spicetify apply >/dev/null 2>&1 || act spicetify backup apply || refuse 'spicetify failed' || return
+    stamp spotify
+    say ok
+}
+
+# The palette push writes the colour theme and keeps the font and palette keys
+# current; this merges the rest of settings.json. Only the extensions the look
+# is made of, from Open VSX; --force makes a re-run upgrade them.
+VSCODIUM_EXTENSIONS=(
+    pkief.material-icon-theme
+    miguelsolorio.fluent-icons
+    usernamehw.errorlens
+    oderwat.indent-rainbow
+)
+
+verb_vscodium() {
+    section vscodium
+    command -v codium >/dev/null || refuse 'vscodium is not installed' || return
+    local e missed=0
+    for e in "${VSCODIUM_EXTENSIONS[@]}"; do
+        if act codium --install-extension "$e" --force >/dev/null 2>&1; then
+            say "$e"
+        else
+            say "$e FAILED — not on Open VSX, or no network"
+            missed=1
+        fi
+    done
+    act python3 "$THEME_MANAGER" apply-vscodium || refuse 'settings.json was not merged' || return
+    say 'settings merged — the theme lands on the next window'
+    # A missed extension leaves it for the next install to try again.
+    if (( ! missed )); then stamp vscodium; fi
+}
+
+# Vencord loads only a theme ticked in its own settings. The palette push
+# writes the sheet; this ticks it, with Vesktop closed.
+verb_vesktop() {
+    section vesktop
+    command -v vesktop >/dev/null || refuse 'vesktop is not installed' || return
+    if pgrep -x vesktop >/dev/null; then
+        refuse 'close Vesktop first: Vencord rewrites its settings while it runs' || return
+    fi
+    act python3 "$THEME_MANAGER" apply-vesktop || refuse 'the theme was not ticked' || return
+    stamp vesktop
+    say 'theme ticked'
+}
+
+# Colours come from gtk.css; the rest lives in xfconf and uca.xml (custom
+# actions). Thunar must be closed, since it writes its state back on exit.
+verb_thunar() {
+    section thunar
+    command -v thunar >/dev/null || refuse 'thunar is not installed' || return
+    if pgrep -x thunar >/dev/null; then
+        refuse 'close Thunar first: it writes to the same channel as it exits' || return
+    fi
+    act python3 "$THEME_MANAGER" apply-thunar || refuse 'not every setting was applied' || return
+    stamp thunar
+    say 'settings and right-click menu applied'
+}
+
+# The infrared half of a Windows Hello camera: the capture device that offers
+# 8-bit grey, by its stable /dev/v4l/by-path name when it has one.
+ir_camera() {
+    local dev link formats
+    for dev in /dev/video*; do
+        [[ -c $dev ]] || continue
+        formats=$(v4l2-ctl -d "$dev" --list-formats 2>/dev/null) || continue
+        [[ $formats == *"'GREY'"* ]] || continue
+        for link in /dev/v4l/by-path/*; do
+            if [[ $(readlink -f "$link") == "$dev" ]]; then printf '%s\n' "$link"; return 0; fi
+        done
+        printf '%s\n' "$dev"
+        return 0
+    done
+    return 1
+}
+
+# Face unlock for the lock screen: howdy-next on the infrared camera, asked
+# through the lock's own PAM service, system/etc/pam.d/impasto-face. Not in
+# packages/, since it brings opencv and only a machine with an infrared camera
+# can use it. Enrolling needs somebody in front of the camera, so an install
+# that cannot ask leaves it for this verb.
+verb_face() {
+    section 'face unlock'
+    command -v v4l2-ctl >/dev/null || refuse 'v4l2-ctl is not installed (package: v4l-utils)' || return
+    local camera
+    local -a yes=()
+    if (( NOCONFIRM )); then yes=(--noconfirm); fi
+    if ! camera=$(ir_camera); then
+        if [[ -n $SOFT ]]; then say 'skipped  no infrared camera'; return 0; fi
+        fail 'no infrared camera: face unlock needs one'
+    fi
+    [[ -f /etc/pam.d/impasto-face ]] \
+        || refuse "the lock screen's PAM service is not installed (./setup system)" || return
+    # Built without its test suite: one test races the compare process against
+    # the password prompt and fails under a parallel build, and passes alone.
+    if ! command -v howdy >/dev/null; then
+        aur_helper || refuse 'howdy-next needs an AUR helper' || return
+        act "$HELPER" -S --needed "${yes[@]}" --mflags --nocheck howdy-next \
+            || refuse 'howdy-next was not installed' || return
+        say 'installed howdy-next'
+    fi
+    act sudo howdy download-models >/dev/null || refuse 'the recognition models did not download' || return
+    # The notice is the lock screen's cue that the camera is on.
+    act sudo howdy set device_path "$camera" >/dev/null \
+        && act sudo howdy set detection_notice true >/dev/null \
+        || refuse 'howdy could not be configured' || return
+    say "camera   $camera"
+    if (( ! DRY )) && sudo howdy list >/dev/null 2>&1; then
+        say 'kept     the face already enrolled · Settings → Session adds another'
+    elif (( NOCONFIRM )) || [[ ! -t 0 ]]; then
+        refuse 'enrolling needs you in front of the camera' || return
+    elif ask 'enrol your face now? look straight at the camera'; then
+        act sudo howdy add || refuse 'no face was enrolled' || return
+    else
+        say 'skipped  enrolling · ./setup face when you want it'
+    fi
+    stamp face
+    say 'ok · lock the screen and look at it'
+}
+
+
+# ── CHECKS ──────────────────────────────────────────────────────────────────
+
+# What CI runs.
+verb_check() {
+    local -a files
+    cd "$REPO"
+
+    section python
+    mapfile -t files < <(find home -name '*.py')
+    python3 -c 'import ast, sys; [ast.parse(open(f, encoding="utf-8").read(), f) for f in sys.argv[1:]]' \
+        "${files[@]}"
+    say 'syntax ok'
+
+    # Arch calls it luac; Debian and Ubuntu, where CI runs, may only have
+    # luac5.4 unless the alternatives point the plain name at it.
+    section lua
+    local luac
+    luac=$(command -v luac || command -v luac5.4) || fail 'luac is not installed (package: lua)'
+    mapfile -t files < <(find home -name '*.lua')
+    "$luac" -p "${files[@]}"
+    say 'syntax ok'
+
+    # zsh -n takes one script at a time: further arguments become its
+    # positional parameters rather than more files to parse.
+    section zsh
+    local f
+    while IFS= read -r f; do zsh -n "$f"; done < <(find home -name '.zshrc' -o -name '*.zsh')
+    say 'syntax ok'
+
+    section bash
+    bash -n setup
+    say 'syntax ok'
+
+    # Plain JSON only (the one .jsonc file is fastfetch's). A typo in the
+    # palette board description would otherwise fail silently.
+    section json
+    mapfile -t files < <(find home -name '*.json')
+    python3 -c 'import json, sys; [json.load(open(f, encoding="utf-8")) for f in sys.argv[1:]]' "${files[@]}"
+    say 'syntax ok'
+
+    # yazi silently ignores a theme it cannot parse.
+    section toml
+    mapfile -t files < <(find home -name '*.toml')
+    python3 -c 'import sys, tomllib; [tomllib.load(open(f, "rb")) for f in sys.argv[1:]]' "${files[@]}"
+    say 'syntax ok'
+}
+
+
+# ── CHOOSER ─────────────────────────────────────────────────────────────────
+#
+# `./setup` with nothing after it, at a terminal, is this: the verbs, and for
+# install a screen of what it may leave out, which is the --skip flags with
+# somewhere to press them. A script, an unattended `--noconfirm` and the first
+# boot of the install medium never see it, and choosing here only composes the
+# same command line by hand.
+
+CURSOR_HIDDEN=0
+DRAWN=0
+
+quiet_cursor() {
+    if (( ! CURSOR_HIDDEN )); then printf '\e[?25l'; CURSOR_HIDDEN=1; fi
+}
+
+loud_cursor() {
+    if (( CURSOR_HIDDEN )); then printf '\e[?25h'; CURSOR_HIDDEN=0; fi
+}
+
+# One keypress. An arrow arrives as three bytes and leaves as one word.
+key() {
+    local k rest
+    IFS= read -rsn1 k || return 1
+    if [[ $k == $'\e' ]]; then
+        IFS= read -rsn2 -t 0.02 rest || rest=
+        case $rest in
+            '[A') k=up ;;
+            '[B') k=down ;;
+            '[C') k=right ;;
+            '[D') k=left ;;
+            *)    k=quit ;;
+        esac
+    fi
+    case $k in
+        '')  k=enter ;;
+        ' ') k=space ;;
+        j)   k=down ;;
+        k)   k=up ;;
+        h)   k=left ;;
+        l)   k=right ;;
+        q)   k=quit ;;
+    esac
+    printf '%s' "$k"
+}
+
+# Every line of a screen goes through here, so redrawing it is a matter of
+# stepping back over what was counted.
+line() {
+    printf '%s\n' "$*"
+    DRAWN=$(( DRAWN + 1 ))
+}
+
+redraw() {
+    if (( DRAWN )); then printf '\e[%dF\e[0J' "$DRAWN"; fi
+    DRAWN=0
+}
+
+# The row under the cursor, and the mark in front of it.
+here() {
+    if (( $1 == $2 )); then printf '%s▸%s' "$ACCENT" "$OFF"; else printf ' '; fi
+}
+
+hint() {
+    local out= pair
+    for pair in "$@"; do
+        out+="$TEXT${pair%%:*}$OFF $FAINT${pair#*:}$OFF   "
+    done
+    line "  $out"
+}
+
+VERBS=(
+    'install:everything: the packages, the files, the system, the plugins'
+    'update:pull what is new, and install it'
+    'sync:copy home/ into $HOME'
+    'uninstall:remove what was installed, and put back what it moved aside'
+    'check:the syntax checks CI runs'
+    'help:every verb and flag'
+)
+
+# The verbs. What was picked is left in CHOSEN, empty when nothing was.
+CHOSEN=
+menu() {
+    local at=0 i k name note label
+    CHOSEN=
+    while :; do
+        redraw
+        line "  ${TEXT}what to do${OFF}"
+        line ''
+        for i in "${!VERBS[@]}"; do
+            name=${VERBS[i]%%:*}
+            note=${VERBS[i]#*:}
+            if (( i == at )); then
+                label="$TEXT$BOLD$(printf '%-11s' "$name")$OFF$MUTED$note"
+            else
+                label="$MUTED$(printf '%-11s' "$name")$OFF$FAINT$note"
+            fi
+            line "  $(here "$i" "$at") $label$OFF"
+        done
+        line ''
+        hint '↑↓:move' 'enter:choose' 'q:quit'
+        k=$(key) || k=quit
+        case $k in
+            up)    at=$(( at ? at - 1 : ${#VERBS[@]} - 1 )) ;;
+            down)  at=$(( (at + 1) % ${#VERBS[@]} )) ;;
+            enter) CHOSEN=${VERBS[at]%%:*}; return 0 ;;
+            quit)  return 0 ;;
+        esac
+    done
+}
+
+# What install may leave out, in the order it does it. Each row is a --skip.
+PARTS=(
+    'packages:the packages'
+    'system:the login screen'
+    'plugins:the plugins'
+    'extras:the extras'
+)
+
+# The screen install opens on. Sets the SKIP_* flags and HELPER, and answers
+# whether to go ahead.
+parts() {
+    local -a on=(1 1 1 1)
+    local at=0 rows=5 i k name note label box pick pacman aur helper=0
+    local -a helpers=(yay paru)
+    pacman=$(names "$REPO/packages/pacman.txt" | wc -l)
+    aur=$(names "$REPO/packages/aur.txt" | wc -l)
+    # The one installed, as `aur_helper` would pick it.
+    case $HELPER in
+        paru) helper=1 ;;
+        '')   if ! command -v yay >/dev/null && command -v paru >/dev/null; then helper=1; fi ;;
+    esac
+    while :; do
+        redraw
+        line "  ${TEXT}what to install${OFF}   $FAINT·   space toggles, enter installs$OFF"
+        line ''
+        for i in "${!PARTS[@]}"; do
+            name=${PARTS[i]#*:}
+            case ${PARTS[i]%%:*} in
+                packages) note="$pacman from the repositories, $aur from the AUR" ;;
+                system)   note='sddm, unless this machine already has one' ;;
+                plugins)  note='shake to find · glass on the windows' ;;
+                extras)   note='Thunar, VSCodium, Vesktop, Spotify, GTK, your face' ;;
+            esac
+            if (( on[i] )); then box="$ACCENT◉$OFF"; else box="$FAINT○$OFF"; fi
+            if (( i == at )); then
+                label="$TEXT$BOLD$(printf '%-18s' "$name")$OFF"
+            else
+                label="$MUTED$(printf '%-18s' "$name")$OFF"
+            fi
+            line "  $(here "$i" "$at") $box  $label$FAINT$note$OFF"
+        done
+        line ''
+        if (( helper == 0 )); then
+            pick="$ACCENT‹ yay ›$OFF   ${FAINT}paru$OFF"
+        else
+            pick="${FAINT}yay$OFF   $ACCENT‹ paru ›$OFF"
+        fi
+        if (( at == 4 )); then
+            label="$TEXT$BOLD$(printf '%-18s' 'the AUR helper')$OFF"
+        else
+            label="$MUTED$(printf '%-18s' 'the AUR helper')$OFF"
+        fi
+        line "  $(here 4 "$at")    $label$pick"
+        line ''
+        hint '↑↓:move' 'space:toggle' 'enter:install' 'q:quit'
+        k=$(key) || k=quit
+        case $k in
+            up)    at=$(( at ? at - 1 : rows - 1 )) ;;
+            down)  at=$(( (at + 1) % rows )) ;;
+            left|right|space)
+                if (( at == 4 )); then helper=$(( 1 - helper ))
+                elif [[ $k == space ]]; then on[at]=$(( 1 - on[at] )); fi ;;
+            enter)
+                SKIP_PACKAGES=$(( 1 - on[0] ))
+                SKIP_SYSTEM=$((   1 - on[1] ))
+                SKIP_PLUGINS=$((  1 - on[2] ))
+                SKIP_EXTRAS=$((   1 - on[3] ))
+                HELPER=${helpers[helper]}
+                return 0 ;;
+            quit) return 1 ;;
+        esac
+    done
+}
+
+# What `./setup` does with no command. Falls back to the help text wherever
+# this cannot be drawn: no terminal, or one too small to hold a screen.
+interactive() {
+    local rows size verb
+    size=$(stty size 2>/dev/null </dev/tty) || size=
+    # shellcheck disable=SC2086
+    set -- $size
+    rows=${1:-0}
+    if [[ ! -t 0 ]] || (( ! ATTY || rows < 20 || $(width) < 76 )); then
+        usage
+        return 0
+    fi
+    banner
+    trap 'loud_cursor; printf "\n"; exit 130' INT
+    trap loud_cursor EXIT
+    quiet_cursor
+    menu
+    verb=$CHOSEN
+    if [[ -z $verb ]]; then redraw; loud_cursor; return 0; fi
+    if [[ $verb == install ]]; then
+        redraw
+        parts || { redraw; loud_cursor; return 0; }
+    fi
+    redraw
+    loud_cursor
+    trap - INT EXIT
+    case $verb in
+        install)   verb_install ;;
+        update)    ARGS=(update); (( DRY )) && ARGS+=(--dry-run); verb_update ;;
+        sync)      verb_sync ;;
+        uninstall) ask 'remove every file setup installed?' || return 0; verb_uninstall ;;
+        check)     verb_check ;;
+        help)      usage ;;
+    esac
+}
+
+
+# ── MAIN ────────────────────────────────────────────────────────────────────
+
+main() {
+    ARGS=("$@")
+    local verb=
+    while (( $# )); do
+        case $1 in
+            --skip-packages) SKIP_PACKAGES=1 ;;
+            --skip-system)   SKIP_SYSTEM=1 ;;
+            --skip-plugins)  SKIP_PLUGINS=1 ;;
+            --skip-extras)   SKIP_EXTRAS=1 ;;
+            --aur-helper)    (( $# > 1 )) || fail '--aur-helper takes yay or paru'; HELPER=$2; shift ;;
+            --aur-helper=*)  HELPER=${1#*=} ;;
+            --noconfirm)     NOCONFIRM=1 ;;
+            -n|--dry-run)    DRY=1 ;;
+            -w|--watch)      WATCH=1 ;;
+            --restore)       RESTORE=1 ;;
+            -h|--help)       usage; exit 0 ;;
+            -*)              fail "unknown option: $1 (./setup help)" ;;
+            *)               if [[ $verb == files ]]; then FILES_ARGS+=("$1")
+                             else [[ -z $verb ]] || fail "one command at a time: $verb, or $1"; verb=$1; fi ;;
+        esac
+        shift
+    done
+    if [[ -z $verb ]]; then interactive; exit 0; fi
+    case $HELPER in
+        ''|yay|paru) ;;
+        *) fail '--aur-helper takes yay or paru' ;;
+    esac
+    case $verb in install|update|uninstall) banner ;; esac
+    if (( DRY )) && [[ -z ${IMPASTO_RELAUNCHED:-} ]]; then
+        printf '  %sdry run — nothing on this machine is changed%s\n' "$MUTED" "$OFF"
+    fi
+
+    case $verb in
+        install)   verb_install ;;
+        update)    verb_update ;;
+        uninstall) verb_uninstall ;;
+        packages)  verb_packages ;;
+        sync)      if (( WATCH )); then verb_watch; else verb_sync; fi ;;
+        system)    verb_system ;;
+        plugins)   verb_plugins ;;
+        defaults)  verb_defaults ;;
+        cursors)   verb_cursors ;;
+        spotify)   verb_spotify ;;
+        vscodium)  verb_vscodium ;;
+        thunar)    verb_thunar ;;
+        vesktop)   verb_vesktop ;;
+        face)      verb_face ;;
+        files)     verb_files ;;
+        check)     verb_check ;;
+        help|-h|--help) usage ;;
+        *)         fail "unknown command: $verb (./setup help)" ;;
+    esac
+}
+
+main "$@"
