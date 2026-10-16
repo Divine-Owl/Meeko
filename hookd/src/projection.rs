@@ -17,6 +17,7 @@ pub const MAX_TURNS_PER_AGENT: usize = 50;
 pub const MAX_REV_GAP: i64 = 5000;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Agent {
     pub id: String,
     pub name: String,
@@ -25,6 +26,7 @@ pub struct Agent {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Turn {
     /// Pointer only, no message body (spec §5 — host-only data is never cached).
     pub id: String,
@@ -34,6 +36,7 @@ pub struct Turn {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Approval {
     pub entry_id: String,
     pub agent_id: String,
@@ -49,6 +52,7 @@ pub struct ApprovalOption {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Usage {
     pub provider: String,
     pub used: f64,
@@ -64,6 +68,7 @@ pub enum LinkState {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Link {
     pub state: LinkState,
     pub rev: i64,

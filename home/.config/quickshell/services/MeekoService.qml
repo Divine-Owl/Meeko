@@ -5,7 +5,7 @@
 // │                                                                          │
 // │   Single writer of QML-side agent-surface state. Owns the socket        │
 // │   lifecycle, mirrors hookd's NDJSON push stream into Qt properties,     │
-//   │   and provides the respondApproval verdict path. No Timer polling —   │
+// │   and provides the respondApproval verdict path. No Timer polling —     │
 // │   every re-render is driven by the SSE mirror.                          │
 // │                                                                          │
 // ╰──────────────────────────────────────────────────────────────────────────╯
@@ -23,8 +23,9 @@ import "../theme"
 // approvals, usage, link), and provides the verdict path. Views (AgentModule,
 // AgentPanel, ApprovalCard) are thin readers — they never mutate state.
 //
-// Connection: a socat bridge (stdio ↔ unix socket) carries NDJSON lines.
-// Reconnect uses jittered backoff — connection management, not data polling.
+// Connection: native Quickshell Socket (in-process, zero extra resident
+// process). The socket path is set to connect; clearing it disconnects.
+// Reconnect uses a Timer — connection management, not data polling.
 Singleton {
     id: root
 
@@ -59,23 +60,35 @@ Singleton {
     }
 
     // ── SOCKET CONNECTION ───────────────────────────────────────────────────
-    // socat bridges stdio ↔ unix socket. NDJSON in via stdin, out via stdout.
+    // Native Quickshell Socket — in-process, no extra resident process.
+    // Setting `path` connects; clearing it disconnects.
 
-    readonly property string socketPath: Qt.env("MEEKO_HOOKD_SOCKET") || `${Qt.env("XDG_RUNTIME_DIR")}/meeko-hookd.sock`
+    readonly property string socketPath: Quickshell.env("MEEKO_HOOKD_SOCKET") || `${Quickshell.env("XDG_RUNTIME_DIR")}/meeko-hookd.sock`
 
     property int nextId: 1
 
-    readonly property Process socket: Process {
-        command: ["socat", "-t", "5", "-", `UNIX-CONNECT:${root.socketPath}`]
-        running: true
+    readonly property Socket socket: Socket {
+        path: root.socketPath
 
-        stdout: SplitParser {
+        parser: SplitParser {
             splitMarker: "\n"
             onRead: line => root.handleLine(line)
         }
+    }
 
-        onStarted: root.handleConnect()
-        onExited: root.handleDisconnect()
+    // Watch connection state — reconnect on disconnect.
+    readonly property Connections connectionWatch: Connections {
+        target: root.socket
+
+        function onConnectedChanged(): void {
+            if (root.socket.connected) {
+                root.reconnect.stop()
+                root.linkState = "online"
+            } else {
+                root.linkState = "offline"
+                root.reconnect.restart()
+            }
+        }
     }
 
     // Reconnect timer — connection management only, never data polling.
@@ -84,21 +97,11 @@ Singleton {
         repeat: false
         onTriggered: {
             if (root.linkState !== "online") {
-                socket.running = false
-                socket.running = true
+                // Toggle the path to force a reconnect
+                socket.path = ""
+                socket.path = root.socketPath
             }
         }
-    }
-
-    function handleConnect(): void {
-        root.reconnect.stop()
-        // On connect, hookd pushes a snapshot. We don't need to send hello —
-        // the snapshot arrives automatically (spec §6.1).
-    }
-
-    function handleDisconnect(): void {
-        root.linkState = "offline"
-        root.reconnect.restart()
     }
 
     // ── INCOMING MESSAGES ───────────────────────────────────────────────────
@@ -238,6 +241,7 @@ Singleton {
         const id = root.nextId++
         const line = JSON.stringify({ id, verb, params: params ?? {} })
         socket.write(`${line}\n`)
+        socket.flush()
     }
 
     function respondApproval(entryId: string, optionId: string): void {
