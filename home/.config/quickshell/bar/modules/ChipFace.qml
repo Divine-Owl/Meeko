@@ -93,21 +93,11 @@ Item {
             }
         }
 
-        Loader {
-            anchors.centerIn: parent
-            active: !root.ring && root.moduleId === "pet"
-            sourceComponent: PetFace {
-                width: root.size + 2
-                height: root.size + 2
-                size: root.size + 2
-            }
-        }
-
         Text {
             id: symbol
 
             anchors.centerIn: parent
-            visible: root.moduleId !== "claude" && root.moduleId !== "codex" && root.moduleId !== "pet"
+            visible: root.moduleId !== "claude" && root.moduleId !== "codex"
             text: ModuleService.glyphOf(root.moduleId)
             font.family: Theme.fontMono
             font.pixelSize: root.size

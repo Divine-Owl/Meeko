@@ -44,9 +44,7 @@ Item {
         calendar: calendarBlock,
         notifications: notificationsBlock,
         meeko: meekoBlock,
-        pet: petBlock,
         clock: clockBlock,
-        games: gamesBlock,
         notes: notesBlock,
         tasks: tasksBlock,
         session: sessionBlock,
@@ -162,22 +160,6 @@ Item {
         MeekoBlock {
             cols: root.shape.cols
             rows: root.shape.rows
-        }
-    }
-
-    Component {
-        id: petBlock
-        PetBlock {
-            rows: root.shape.rows
-            onPanelRequested: panel => root.panelRequested(panel)
-        }
-    }
-
-    Component {
-        id: gamesBlock
-        GamesBlock {
-            rows: root.shape.rows
-            onPanelRequested: panel => root.panelRequested(panel)
         }
     }
 

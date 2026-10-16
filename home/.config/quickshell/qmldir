@@ -31,10 +31,7 @@ singleton TimerService       1.0 services/TimerService.qml
 singleton CavaService        1.0 services/CavaService.qml
 singleton CompositorService  1.0 services/CompositorService.qml
 singleton BluetoothService   1.0 services/BluetoothService.qml
-singleton ClaudeService      1.0 services/ClaudeService.qml
-singleton CodexService       1.0 services/CodexService.qml
 singleton UpdatesService     1.0 services/UpdatesService.qml
-singleton PetService         1.0 services/PetService.qml
 singleton ModuleService      1.0 services/ModuleService.qml
 singleton ShortcutService    1.0 services/ShortcutService.qml
 singleton AccountService     1.0 services/AccountService.qml
@@ -42,7 +39,6 @@ singleton MachineService     1.0 services/MachineService.qml
 singleton DesktopService     1.0 services/DesktopService.qml
 singleton DockService        1.0 services/DockService.qml
 singleton ControlsService    1.0 services/ControlsService.qml
-singleton GamesService       1.0 services/GamesService.qml
 singleton NotesService       1.0 services/NotesService.qml
 singleton TasksService       1.0 services/TasksService.qml
 singleton DeckService        1.0 services/DeckService.qml
@@ -77,9 +73,6 @@ NotchOutline     1.0 components/NotchOutline.qml
 ClaudeMark       1.0 components/ClaudeMark.qml
 CodexMark        1.0 components/CodexMark.qml
 PaletteBoard     1.0 components/PaletteBoard.qml
-PetFace          1.0 components/PetFace.qml
-PetFamily        1.0 components/PetFamily.qml
-PetShelf         1.0 components/PetShelf.qml
 UsageBar         1.0 components/UsageBar.qml
 Figure           1.0 components/Figure.qml
 ModuleCard       1.0 components/ModuleCard.qml
@@ -141,8 +134,6 @@ Module           1.0 bar/modules/Module.qml
 ClockModule      1.0 bar/modules/ClockModule.qml
 MediaModule      1.0 bar/modules/MediaModule.qml
 TimerModule      1.0 bar/modules/TimerModule.qml
-ClaudeModule     1.0 bar/modules/ClaudeModule.qml
-CodexModule      1.0 bar/modules/CodexModule.qml
 BatteryModule    1.0 bar/modules/BatteryModule.qml
 VolumeModule     1.0 bar/modules/VolumeModule.qml
 BrightnessModule 1.0 bar/modules/BrightnessModule.qml
@@ -151,8 +142,6 @@ BluetoothModule  1.0 bar/modules/BluetoothModule.qml
 WeatherModule    1.0 bar/modules/WeatherModule.qml
 StatsModule      1.0 bar/modules/StatsModule.qml
 UpdatesModule    1.0 bar/modules/UpdatesModule.qml
-PetModule        1.0 bar/modules/PetModule.qml
-GamesModule      1.0 bar/modules/GamesModule.qml
 NotesModule      1.0 bar/modules/NotesModule.qml
 NotificationsModule 1.0 bar/modules/NotificationsModule.qml
 ChipFace         1.0 bar/modules/ChipFace.qml
@@ -182,8 +171,6 @@ CalendarCard     1.0 bar/island/controls/CalendarCard.qml
 LockScreen       1.0 lock/LockScreen.qml
 LockSurface      1.0 lock/LockSurface.qml
 SessionPanel     1.0 bar/island/SessionPanel.qml
-PetPanel         1.0 bar/island/PetPanel.qml
-GamesPanel       1.0 bar/island/GamesPanel.qml
 NotesPanel       1.0 bar/island/NotesPanel.qml
 BoardPanel       1.0 bar/island/BoardPanel.qml
 KeysPanel        1.0 bar/island/KeysPanel.qml
@@ -200,9 +187,7 @@ Block            1.0 bar/island/controls/Block.qml
 BlockFace        1.0 bar/island/controls/BlockFace.qml
 TogglesBlock     1.0 bar/island/controls/TogglesBlock.qml
 MeekoBlock       1.0 bar/island/controls/MeekoBlock.qml
-PetBlock         1.0 bar/island/controls/PetBlock.qml
 ClockBlock       1.0 bar/island/controls/ClockBlock.qml
-GamesBlock       1.0 bar/island/controls/GamesBlock.qml
 ControlsTray     1.0 bar/island/controls/ControlsTray.qml
 NetworkDetail    1.0 bar/island/NetworkDetail.qml
 SoundDetail      1.0 bar/island/SoundDetail.qml
