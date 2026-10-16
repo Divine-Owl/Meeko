@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit — opt-in convenience gate. Enable once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# This is a convenience, not the boundary: --no-verify skips it, CI runs
+# ci/check.sh with MEEKO_CI=1 where nothing can be skipped and no tool is
+# silently absent. Keep it fast — --fast only (syntax + contract tests);
+# qmllint, gitleaks and cargo belong to the full gate / CI, not to every commit.
+set -euo pipefail
+
+repo=$(git rev-parse --show-toplevel)
+exec bash "$repo/ci/check.sh" --fast

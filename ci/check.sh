@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# ci/check.sh — the one gate for Meeko.
+#
+# The GitHub Actions workflow runs this exact script (with MEEKO_CI=1), and
+# running it by hand is the local mirror: same checks, same order, same exit
+# code. What differs is strictness — in CI a missing tool is a failure; on a
+# dev box it is a loud skip, so a laptop without gitleaks still gets useful
+# feedback instead of a red herring.
+#
+# Usage:
+#   ci/check.sh                  full gate (everything applicable on this box)
+#   ci/check.sh --fast           pre-commit subset: syntax + contract, seconds
+#   ci/check.sh --import-check    Phase 1 verbatim-import checkpoint. Only
+#                                meaningful against commit 71af2ed's tree: the
+#                                rename (0b818d9) and deletion (4bbc24b)
+#                                commits differ from refs/impasto BY DESIGN, so
+#                                this is not part of the standing gate — audit
+#                                runs it in a detached worktree at 71af2ed.
+#   ci/check.sh --help
+#
+# MEEKO_CI=1 (set by the workflow) turns every "skip" into a failure, so a CI
+# run that says PASS can never have silently skipped a gate.
+set -uo pipefail          # deliberately no -e: failures accumulate and report together
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+STRICT="${MEEKO_CI:-0}"
+FAST=0
+IMPORT=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --fast)        FAST=1 ;;
+        --import-check) IMPORT=1 ;;
+        -h|--help)
+            sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "ci/check.sh: unknown argument: $arg (try --help)" >&2
+            exit 2
+            ;;
+    esac
+done
+
+fails=0
+skips=0
+
+section() { printf '\n── %s ──\n' "$1"; }
+pass()    { printf '   ok   %s\n' "$1"; }
+failure() { printf '   FAIL %s\n' "$1"; fails=$((fails + 1)); }
+
+# skip <what> <tool> <why> — fatal under MEEKO_CI=1, a note otherwise.
+skip() {
+    if [ "$STRICT" = 1 ]; then
+        failure "$1 — required in CI but not available ($2)"
+    else
+        printf '   skip %s (no %s — %s)\n' "$1" "$2" "$3"
+        skips=$((skips + 1))
+    fi
+}
+
+# run_or_fail <label> <cmd...> — stdout/stderr indented under the result.
+run_or_fail() {
+    local label="$1" out
+    shift
+    if out=$("$@" 2>&1); then
+        pass "$label"
+    else
+        failure "$label"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+}
+
+# ── 1. shell syntax ─────────────────────────────────────────────────────
+# setup check covers home/ (py/lua/zsh/json/toml + `bash -n setup`); this
+# adds every tracked *.sh — the test suite, this script, hooks, future CI.
+section "shell syntax (bash -n)"
+sh_fail=0
+while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if ! out=$(bash -n "$f" 2>&1); then
+        printf '   FAIL bash -n %s\n%s\n' "$f" "$out" | sed 's/^/        /'
+        sh_fail=1
+    fi
+done < <({ git ls-files '*.sh' '.githooks/*'; echo 'ci/check.sh'; echo '.githooks/pre-commit'; } | sort -u)
+if ! bash -n setup 2>&1; then sh_fail=1; printf '   FAIL bash -n setup\n'; fi
+if [ "$sh_fail" -eq 0 ]; then pass "all tracked shell scripts parse"; else fails=$((fails + 1)); fi
+
+# ── 2. tree syntax (upstream's own aggregate check) ─────────────────────
+section "syntax (setup check: python lua zsh bash json toml)"
+run_or_fail "setup check" ./setup check
+
+# ── 3. contract: the qs ipc verb baseline ───────────────────────────────
+# Upstream-derived (refs/impasto), so it can't pass vacuously — CR&S pass 3.
+section "contract (qs ipc verb baseline)"
+run_or_fail "verbs.static" bash tests/qa/phase1/verbs.static.test.sh
+
+# ── 4. Phase 1 import checkpoint (opt-in only) ──────────────────────────
+if [ "$IMPORT" -eq 1 ]; then
+    section "checkpoint (verbatim import — commit-scoped, see header)"
+    run_or_fail "import.tree" bash tests/qa/phase1/import.tree.test.sh
+fi
+
+# --fast stops here: everything below is pre-commit-unfriendly (qmllint,
+# gitleaks, cargo) and belongs to the full gate / CI.
+if [ "$FAST" -eq 1 ]; then
+    section "summary"
+    if [ "$fails" -gt 0 ]; then
+        printf 'ci/check --fast: FAIL — %d failed, %d skipped\n' "$fails" "$skips"
+        exit 1
+    fi
+    printf 'ci/check --fast: PASS (%d skipped)\n' "$skips"
+    exit 0
+fi
+
+# ── 5. qmllint ──────────────────────────────────────────────────────────
+# Locally qmllint crashes on files importing the Quickshell QML module when
+# it isn't installed (pre-existing, affects the pristine import equally) —
+# CI installs Quickshell and enforces this for real.
+section "qml lint (qmllint)"
+if command -v qmllint >/dev/null 2>&1; then
+    if out=$(qmllint home/.config/quickshell 2>&1); then
+        pass "qmllint"
+    elif [ "$STRICT" = 1 ]; then
+        failure "qmllint"
+        printf '%s\n' "$out" | sed 's/^/        /'
+    else
+        printf '   note qmllint did not run clean locally (known: Quickshell QML module not installed) — enforced in CI\n'
+        skips=$((skips + 1))
+    fi
+else
+    skip "qmllint" "qmllint" "package: quickshell / qt6-declarative"
+fi
+
+# ── 6. secret scan ──────────────────────────────────────────────────────
+# CR&S requirement. Fixtures under tests/fixtures/ are covered too — they are
+# scrubbed before landing, this catches what slips through.
+section "secret scan (gitleaks)"
+if command -v gitleaks >/dev/null 2>&1; then
+    # `gitleaks dir` scans the working tree (v8.19+); fall back to the older
+    # `detect --source` spelling for pinned/older installs.
+    if gitleaks dir --help >/dev/null 2>&1; then
+        run_or_fail "gitleaks (tree)" gitleaks dir "$REPO_ROOT" --redact --no-banner
+    else
+        run_or_fail "gitleaks (tree)" gitleaks detect --source "$REPO_ROOT" --redact --no-banner
+    fi
+else
+    skip "gitleaks" "gitleaks" "cargo install gitleaks"
+fi
+
+# ── 7. cargo (Phase 2+: meeko-hookd) ────────────────────────────────────
+# Present only once a Cargo.toml lands in the tree; then fmt/test become part
+# of the standing gate. Full release builds stay in CI (memory-tight box).
+section "rust (cargo)"
+cargo_manifest=$(git ls-files 'Cargo.toml' '**/Cargo.toml' | head -1 || true)
+if [ -z "$cargo_manifest" ]; then
+    # Not applicable yet — never a skip: CI must stay green through Phase 1.
+    printf '   n/a  no Cargo.toml in tree yet (Phase 2+)\n'
+elif ! command -v cargo >/dev/null 2>&1; then
+    skip "cargo fmt+test" "cargo" "package: rust"
+else
+    if command -v rustfmt >/dev/null 2>&1 || cargo fmt --version >/dev/null 2>&1; then
+        run_or_fail "cargo fmt --check" cargo fmt --manifest-path "$cargo_manifest" -- --check
+    else
+        skip "cargo fmt" "rustfmt" "package: rust"
+    fi
+    run_or_fail "cargo test" cargo test --manifest-path "$cargo_manifest"
+fi
+
+# ── 8. whitespace hygiene ───────────────────────────────────────────────
+section "whitespace (git diff --check)"
+if out=$(git diff --check 2>&1) && [ -z "$out" ]; then
+    pass "no whitespace errors in working tree"
+else
+    failure "git diff --check"
+    printf '%s\n' "$out" | sed 's/^/        /'
+fi
+
+# ── summary ─────────────────────────────────────────────────────────────
+section "summary"
+if [ "$fails" -gt 0 ]; then
+    printf 'ci/check: FAIL — %d failed, %d skipped\n' "$fails" "$skips"
+    exit 1
+fi
+if [ "$STRICT" = 1 ] && [ "$skips" -gt 0 ]; then
+    # Defensive: strict mode should have turned skips into failures already.
+    printf 'ci/check: FAIL — %d skipped under MEEKO_CI=1\n' "$skips"
+    exit 1
+fi
+printf 'ci/check: PASS (%d skipped)\n' "$skips"
+exit 0
