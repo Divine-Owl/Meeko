@@ -115,7 +115,7 @@ ColumnLayout {
             Layout.preferredHeight: Theme.cardRow
 
             Text {
-                text: MeekoService.escapeDisplay(modelData.name || modelData.id)
+                text: modelData.name || modelData.id
                 color: Theme.text
                 Layout.fillWidth: true
                 elide: Text.ElideRight
@@ -123,7 +123,7 @@ ColumnLayout {
             }
 
             Text {
-                text: MeekoService.escapeDisplay(modelData.status || "")
+                text: modelData.status || ""
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSizeSmall
             }
@@ -158,7 +158,7 @@ ColumnLayout {
             Layout.preferredHeight: Theme.cardRow
 
             Text {
-                text: MeekoService.escapeDisplay(modelData.provider || "")
+                text: modelData.provider || ""
                 color: Theme.text
                 Layout.fillWidth: true
                 font.pixelSize: Theme.fontSizeRegular

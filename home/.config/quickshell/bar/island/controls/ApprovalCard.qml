@@ -45,7 +45,7 @@ ColumnLayout {
 
     Text {
         Layout.fillWidth: true
-        text: MeekoService.escapeDisplay(root.question)
+        text: root.question
         color: Theme.text
         wrapMode: Text.Wrap
         maximumLineCount: 3
@@ -68,7 +68,7 @@ ColumnLayout {
 
             PillButton {
                 required property var modelData
-                text: MeekoService.escapeDisplay(modelData.label || modelData.id)
+                text: modelData.label || modelData.id
                 icon: modelData.id === "yes" ? "󰄬" : (modelData.id === "no" ? "󰅖" : "")
                 onClicked: MeekoService.respondApproval(root.entryId, modelData.id)
             }
@@ -86,7 +86,7 @@ ColumnLayout {
 
     Text {
         visible: root.hasError
-        text: MeekoService.escapeDisplay(root.error)
+        text: root.error
         color: Theme.red
         font.pixelSize: Theme.fontSizeSmall
         font.weight: Font.Medium

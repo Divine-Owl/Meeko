@@ -79,7 +79,7 @@ Item {
 
                     Text {
                         anchors.fill: parent
-                        text: MeekoService.escapeDisplay(modelData.question || "")
+                        text: modelData.question || ""
                         elide: Text.ElideRight
                         color: Theme.text
                         font.pixelSize: Theme.fontSizeSmall

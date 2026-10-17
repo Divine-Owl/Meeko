@@ -199,8 +199,12 @@ Singleton {
     function applyAgentUpsert(agent: var): void {
         if (!agent || !agent.id)
             return
+        const safe = Object.assign({}, agent, {
+            name: root.escapeDisplay(agent.name || ""),
+            status: root.escapeDisplay(agent.status || "")
+        })
         const next = root.agents.filter(a => a.id !== agent.id)
-        next.push(agent)
+        next.push(safe)
         while (next.length > 100) {
             next.shift()
             root.dropCount++
@@ -229,8 +233,15 @@ Singleton {
     function applyApprovalAdd(approval: var): void {
         if (!approval || !approval.entryId)
             return
+        const safeOptions = (approval.options || []).map(o => Object.assign({}, o, {
+            label: root.escapeDisplay(o.label || "")
+        }))
+        const safe = Object.assign({}, approval, {
+            question: root.escapeDisplay(approval.question || ""),
+            options: safeOptions
+        })
         const next = root.approvals.filter(a => a.entryId !== approval.entryId)
-        next.push(approval)
+        next.push(safe)
         while (next.length > 10) {
             next.shift()
             root.dropCount++
@@ -256,8 +267,11 @@ Singleton {
     function applyUsage(u: var): void {
         if (!u)
             return
+        const safe = Object.assign({}, u, {
+            provider: root.escapeDisplay(u.provider || "")
+        })
         const next = root.usage.filter(x => x.provider !== u.provider)
-        next.push(u)
+        next.push(safe)
         while (next.length > 20) {
             next.shift()
             root.dropCount++
