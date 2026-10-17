@@ -701,7 +701,87 @@ verb_system() {
     act $SUDO install -d -m 755 "$ROOT/var/lib/impasto/faces"
     display_manager
     i2c_dev
+    install_units
+    detect_swap
+    write_session_env
+    write_firstrun
     SUDO=
+}
+
+# ── SWAP / ZRAM DETECTION ────────────────────────────────────────────────────
+# Detect existing swap/hibernation configuration and respect it — never
+# overwrite. Dry-run safe: reports what it would do without modifying.
+detect_swap() {
+    local swapfile=""
+    # Check for existing swap file
+    if [[ -f /etc/fstab ]]; then
+        swapfile=$(grep -E '^\S+\s+\S+\s+swap\s+' /etc/fstab 2>/dev/null | awk '{print $1}' | head -1 || true)
+    fi
+    # Check for zram
+    local zram=0
+    if [[ -d /sys/block/zram0 ]]; then zram=1; fi
+    if (( DRY )); then
+        say "swap: ${swapfile:-none}, zram: $( (( zram )) && echo yes || echo no )"
+        return 0
+    fi
+    # Offer swap only if none exists
+    if [[ -z $swapfile ]] && (( ! zram )); then
+        say "no swap detected; zram recommended on <8 GB systems (skippable)"
+    else
+        say "swap: ${swapfile:-none}, zram: $( (( zram )) && echo yes || echo no )"
+    fi
+}
+
+# ── SESSION ENV FILE ─────────────────────────────────────────────────────────
+# Write env file for the quickshell unit — user services don't inherit the
+# compositor session env. Required for the unit to start correctly.
+write_session_env() {
+    local envfile=$ROOT/etc/meeko/session.env
+    mkdir -p "$(dirname "$envfile")" 2>/dev/null || true
+    if (( DRY )); then
+        say "would write $envfile"
+        return 0
+    fi
+    cat > "$envfile" <<EOF
+WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+HYPRLAND_INSTANCE_SIGNATURE=${HYPRLAND_INSTANCE_SIGNATURE:-}
+XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+EOF
+    chmod 600 "$envfile" 2>/dev/null || true
+    say "wrote     session env file ($envfile)"
+}
+
+# ── FIRST-RUN FLAG ───────────────────────────────────────────────────────────
+write_firstrun() {
+    if (( DRY )); then
+        say "would write first-run flag"
+        return 0
+    fi
+    mkdir -p "$STATE/meeko"
+    touch "$STATE/meeko/welcome"
+    say "wrote     first-run flag (welcome panel)"
+}
+
+# ── SYSTEMD UNITS ────────────────────────────────────────────────────────────
+install_units() {
+    applied system-units && return 0
+    local unit
+    for unit in quickshell.service meeko-hookd.service; do
+        local src="$ROOT/system/etc/systemd/user/$unit"
+        [[ -f "$src" ]] || continue
+        if (( DRY )); then
+            say "would install $unit"
+            continue
+        fi
+        act install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" 2>/dev/null || true
+        say "installed $unit"
+    done
+    if (( ! DRY )); then
+        act systemctl --user daemon-reload >/dev/null 2>&1 || true
+        act systemctl --user enable quickshell.service >/dev/null 2>&1 || true
+        say "enabled  quickshell.service"
+    fi
+    stamp system-units
 }
 
 # ddcutil reaches external monitors through /dev/i2c-*. Its package loads

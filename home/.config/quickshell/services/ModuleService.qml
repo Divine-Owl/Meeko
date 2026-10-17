@@ -134,6 +134,26 @@ Singleton {
         }
     }
 
+    // ── TIERING / LAZY LOAD ─────────────────────────────────────────────────
+    // Opt-in modules use Loader { asynchronous: true } — zero idle cost until
+    // enabled. Prewarm on intent (hover/focus/keybind/panel-open) ~150 ms
+    // before reveal so first paint has content.
+    readonly property var optIn: ["photo", "github", "spectrum", "lyrics"]
+    property var loading: ({})
+
+    function isOptIn(id: string): bool {
+        return root.optIn.indexOf(id) >= 0
+    }
+
+    // Prewarm trigger — call ~150 ms before revealing an opt-in panel.
+    function prewarm(id: string): void {
+        if (!root.isOptIn(id))
+            return
+        const next = Object.assign({}, root.loading)
+        next[id] = true
+        root.loading = next
+    }
+
     // Buttons cannot see the island, so they ask here and the bar listens.
     // The bar writes the open panel back to `shownPanel` so a button can stay
     // lit.

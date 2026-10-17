@@ -1,0 +1,13 @@
+[Unit]
+Description=Meeko shell (quickshell)
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/qs
+Restart=on-failure
+RestartSec=1s
+MemoryHigh=350M
+MemoryMax=430M
+
+[Install]
+WantedBy=graphical-session.target

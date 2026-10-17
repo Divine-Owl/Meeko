@@ -143,8 +143,21 @@ Rectangle {
     readonly property var size: root.layerSizes[islandState.layer] ?? root.layerSizes.modules
 
     // Off for the first frame so the island does not animate in from nothing
-    // at startup.
+    // at startup. Quiet mode suspends all animation — push from
+    // ShellModeService, never polled.
     property bool animated: false
+
+    // ── QUIET MODE ───────────────────────────────────────────────────────────
+    // ShellModeService drives this: quiet suspends animation behaviors and
+    // GPU surfaces (spectrum shader, sheen/blur); bar stays static; hookd
+    // socket stays live. One coalesced frame on exit.
+    readonly property Connections shellModeWatch: Connections {
+        target: ShellModeService
+
+        function onModeChanged(): void {
+            root.animated = ShellModeService.mode === "active"
+        }
+    }
 
     // Attached, only the shape reaches up to the screen edge; the contents keep
     // their padding, so nothing already drawn moves.
