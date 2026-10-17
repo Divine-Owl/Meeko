@@ -62,6 +62,29 @@ Singleton {
             .replace(/"/g, "&quot;")
     }
 
+    function safeAgent(agent: var): var {
+        return Object.assign({}, agent, {
+            name: root.escapeDisplay(agent.name || ""),
+            status: root.escapeDisplay(agent.status || "")
+        })
+    }
+
+    function safeApproval(approval: var): var {
+        const options = (approval.options || []).map(o => Object.assign({}, o, {
+            label: root.escapeDisplay(o.label || "")
+        }))
+        return Object.assign({}, approval, {
+            question: root.escapeDisplay(approval.question || ""),
+            options: options
+        })
+    }
+
+    function safeUsage(u: var): var {
+        return Object.assign({}, u, {
+            provider: root.escapeDisplay(u.provider || "")
+        })
+    }
+
     // ── SOCKET CONNECTION ───────────────────────────────────────────────────
     // Native Quickshell Socket — in-process, no extra resident process.
     // `connected: true` begins connecting; setting it false disconnects.
@@ -169,7 +192,7 @@ Singleton {
             return
         delete root.pending[id]
         if (!msg.ok) {
-            const error = msg.error ?? "unknown"
+            const error = root.escapeDisplay(msg.error ?? "unknown")
             if (intent.type === "respondApproval") {
                 const next = Object.assign({}, root.errors)
                 next[intent.entryId] = error
@@ -183,9 +206,9 @@ Singleton {
         root.dropCount = msg.dropCount ?? 0
         if (msg.link)
             root.applyLink(msg.link)
-        root.agents = msg.agents ?? []
-        root.approvals = msg.approvals ?? []
-        root.usage = msg.usage ?? []
+        root.agents = (msg.agents ?? []).map(a => root.safeAgent(a))
+        root.approvals = (msg.approvals ?? []).map(a => root.safeApproval(a))
+        root.usage = (msg.usage ?? []).map(u => root.safeUsage(u))
         root.errors = {}
         root.pending = {}
         const t = {}
@@ -199,10 +222,7 @@ Singleton {
     function applyAgentUpsert(agent: var): void {
         if (!agent || !agent.id)
             return
-        const safe = Object.assign({}, agent, {
-            name: root.escapeDisplay(agent.name || ""),
-            status: root.escapeDisplay(agent.status || "")
-        })
+        const safe = root.safeAgent(agent)
         const next = root.agents.filter(a => a.id !== agent.id)
         next.push(safe)
         while (next.length > 100) {
@@ -233,13 +253,7 @@ Singleton {
     function applyApprovalAdd(approval: var): void {
         if (!approval || !approval.entryId)
             return
-        const safeOptions = (approval.options || []).map(o => Object.assign({}, o, {
-            label: root.escapeDisplay(o.label || "")
-        }))
-        const safe = Object.assign({}, approval, {
-            question: root.escapeDisplay(approval.question || ""),
-            options: safeOptions
-        })
+        const safe = root.safeApproval(approval)
         const next = root.approvals.filter(a => a.entryId !== approval.entryId)
         next.push(safe)
         while (next.length > 10) {
@@ -267,9 +281,7 @@ Singleton {
     function applyUsage(u: var): void {
         if (!u)
             return
-        const safe = Object.assign({}, u, {
-            provider: root.escapeDisplay(u.provider || "")
-        })
+        const safe = root.safeUsage(u)
         const next = root.usage.filter(x => x.provider !== u.provider)
         next.push(safe)
         while (next.length > 20) {
