@@ -300,6 +300,61 @@ else
 fi
 rm -rf "$stage"
 
+# ── 12. setup (failure path) ─────────────────────────────────────────────────
+# Section 11 asserts what dry-run says; dry-run returns before any of the
+# failure paths, so the invariant that matters is checked by *running* the
+# system verb for real into a throwaway prefix with the build made to fail
+# (CARGO_TARGET_DIR points where cargo cannot write). What has to hold, on
+# every box: the failure surfaces non-zero, the rest of the install still
+# runs, quickshell is installed and its enable attempted anyway, the hookd
+# unit is never enabled, and the stamp is left unset so the next run retries.
+section "setup (failure path)"
+stage=$(mktemp -d)
+st=$(mktemp -d)
+if out=$(CARGO_TARGET_DIR=/proc/meeko-gate-nope \
+        XDG_STATE_HOME="$st" IMPASTO_ROOT="$stage" \
+        timeout 180 ./setup system --noconfirm 2>&1); then
+    failure "setup exited 0 — a failed hookd build must surface non-zero"
+else
+    pass "setup exits non-zero when hookd cannot be built"
+fi
+if printf '%s\n' "$out" | grep -q "missing.*meeko-hookd"; then
+    pass "reports the missing hookd binary"
+else
+    failure "no report of the hookd build failing"
+fi
+if printf '%s\n' "$out" | grep -q "skipped  meeko-hookd.service"; then
+    pass "hookd unit skipped when the binary is absent"
+else
+    failure "hookd unit was not skipped without its binary"
+fi
+if printf '%s\n' "$out" | grep -q "enabled  meeko-hookd.service"; then
+    failure "meeko-hookd.service enabled with no binary (203/EXEC loop)"
+else
+    pass "meeko-hookd.service never enabled"
+fi
+if printf '%s\n' "$out" | grep -qE "enabled +quickshell\.service|skipped +enable quickshell\.service"; then
+    pass "quickshell enable attempted regardless of hookd"
+else
+    failure "quickshell's enable is gated on hookd — a failed build costs the shell its autostart"
+fi
+if printf '%s\n' "$out" | grep -q "first-run flag"; then
+    pass "run continued past the failure (first-run flag written)"
+else
+    failure "setup aborted mid-verb after the hookd failure"
+fi
+if [ -f "$stage/etc/systemd/user/quickshell.service" ]; then
+    pass "quickshell unit installed"
+else
+    failure "quickshell unit not installed after the hookd failure"
+fi
+if [ ! -e "$st/impasto/applied/system-units" ]; then
+    pass "system-units left unstamped — next run retries hookd"
+else
+    failure "system-units stamped despite hookd never landing"
+fi
+rm -rf "$stage" "$st"
+
 # ── summary ─────────────────────────────────────────────────────────────
 section "summary"
 if [ "$fails" -gt 0 ]; then
