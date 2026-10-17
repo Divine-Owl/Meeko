@@ -121,7 +121,7 @@ Singleton {
     // A reading that polls keeps polling while a piece on the bar or a widget
     // on the desk shows it.
     function watch(id: string, on: bool): void {
-        } else if (id === "weather") {
+        if (id === "weather") {
             if (on)
                 WeatherService.subscribe()
             else

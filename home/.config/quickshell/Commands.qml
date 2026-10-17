@@ -558,11 +558,7 @@ Scope {
 
         function status(): string {
             return root.ok({
-                link: {
-                    state: MeekoService.linkState,
-                    rev: MeekoService.rev,
-                    hostVersion: MeekoService.hostVersion || null
-                },
+                link: { state: "offline", rev: 0, hostVersion: null },
                 agents: MeekoService.agents.map(agent => ({
                     id: agent.id,
                     name: agent.name,
