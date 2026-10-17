@@ -170,7 +170,10 @@ else
     else
         skip "cargo fmt" "rustfmt" "package: rust"
     fi
-    run_or_fail "cargo test" cargo test --manifest-path "$cargo_manifest"
+    # --locked: CI must test the exact Cargo.lock that `setup` installs from,
+    # or a daemon built at install time can resolve newer crates than the
+    # ones under test here and the gate proves nothing about it.
+    run_or_fail "cargo test" cargo test --locked --manifest-path "$cargo_manifest"
 fi
 
 # ── 8. contract tests (hookd vs mock host) ───────────────────────────────
@@ -185,8 +188,9 @@ else
     # Build unconditionally. The suite's own before() skips cargo when the
     # binary merely *exists*, so a stale meeko-hookd (older checkout, shared
     # target dir) silently runs against the current test file and turns real
-    # contract drift into "the tests are flaky".
-    run_or_fail "cargo build (hookd)" cargo build --manifest-path "$cargo_manifest"
+    # contract drift into "the tests are flaky". --locked for the same reason
+    # as the tests above: this is the lockfile the install path uses.
+    run_or_fail "cargo build (hookd)" cargo build --locked --manifest-path "$cargo_manifest"
     # git stores no mode bits beyond the exec bit, so a fresh clone lands this
     # fixture at 0644 — hookd refuses group/other-readable tokens and the whole
     # suite dies on "socket not found". Set it here, once, for every clone.
@@ -228,6 +232,28 @@ fi
 # opposite of what you'd expect, and binaries are legitimately absent in CI —
 # so the verdict is read from the output, not the exit code.
 section "systemd (user units)"
+
+# A unit ExecStarting a /usr/local binary is ours to install: nothing else on
+# the box provides it. Phase 4 shipped exactly that — meeko-hookd.service with
+# no producer anywhere in setup — so systemd started a daemon that wasn't
+# there, 203/EXEC, Restart=on-failure, and the log reads as a broken daemon
+# rather than a step the install never did. Static text, so it runs without
+# systemd-analyze too: this is the check that would have caught the original
+# gap in CI, not one that depends on the host.
+while IFS= read -r u; do
+    while IFS= read -r target; do
+        case $target in
+            /usr/local/*)
+                if grep -qF -- "$target" setup && grep -qE 'cargo (build|install)' setup; then
+                    pass "producer in setup: $target"
+                else
+                    failure "no producer in setup for $target (unit would 203/EXEC)"
+                fi
+                ;;
+        esac
+    done < <(sed -n 's/^ExecStart=[[:space:]]*//p' "$u" | awk '{print $1}')
+done < <(git ls-files 'system/**/*.service')
+
 if command -v systemd-analyze >/dev/null 2>&1; then
     unit_bad=0
     while IFS= read -r u; do
@@ -245,6 +271,34 @@ if command -v systemd-analyze >/dev/null 2>&1; then
 else
     skip "systemd-analyze" "systemd-analyze" "package: systemd"
 fi
+
+# ── 11. setup (dry-run intent) ──────────────────────────────────────────────
+# What the installer *says* it will do, asserted — the class of bug this phase
+# kept producing is a step that exists but never fires, and a report that
+# never mentions it is how that hides. Staged into a fresh prefix so the
+# verdict does not depend on what this box already installed: deploy reports
+# "new" for every file in an empty prefix. Dry-run is read-only by
+# construction (every change funnels through act); on a live box it was
+# checked by diffing system state before and after two runs.
+section "setup (dry-run intent)"
+stage=$(mktemp -d)
+if out=$(IMPASTO_ROOT="$stage" timeout 120 ./setup system -n --noconfirm 2>&1); then
+    for u in quickshell.service meeko-hookd.service; do
+        if printf '%s\n' "$out" | grep -qF "/etc/systemd/user/$u"; then
+            pass "setup reports: /etc/systemd/user/$u"
+        else
+            failure "setup dry-run never mentions /etc/systemd/user/$u"
+        fi
+    done
+    if printf '%s\n' "$out" | grep -q "would build hookd"; then
+        pass "setup reports: build+install /usr/local/bin/meeko-hookd"
+    else
+        failure "setup dry-run has no build/install step for meeko-hookd"
+    fi
+else
+    failure "setup system --dry-run exited non-zero"
+fi
+rm -rf "$stage"
 
 # ── summary ─────────────────────────────────────────────────────────────
 section "summary"

@@ -701,6 +701,7 @@ verb_system() {
     act $SUDO install -d -m 755 "$ROOT/var/lib/impasto/faces"
     display_manager
     i2c_dev
+    install_hookd
     install_units
     detect_swap
     write_firstrun
@@ -742,12 +743,72 @@ write_firstrun() {
     say "wrote     first-run flag (welcome panel)"
 }
 
+# ── HOOKD BINARY ─────────────────────────────────────────────────────────────
+# meeko-hookd.service ExecStarts /usr/local/bin/meeko-hookd, and nothing else
+# on the box provides it — installing the unit alone hands systemd a 203/EXEC
+# under Restart=on-failure, which reads as a broken daemon rather than a step
+# the install never did.
+#
+# Built as the invoking user, so target/ stays ours: the unit reads
+# /usr/local/bin, never target/, so a later cleanup can drop the build tree
+# and the daemon keeps running. The one privileged step is the copy, through
+# act like every other change here, so --dry-run still changes nothing.
+# --locked installs exactly the Cargo.lock CI tested or fails loudly, instead
+# of resolving newer crates at install time than the ones under test.
+install_hookd() {
+    local dest="$ROOT/usr/local/bin/meeko-hookd"
+    local built="$REPO/hookd/target/release/meeko-hookd"
+    if (( DRY )); then
+        say "would build hookd (--locked, release) and install → /usr/local/bin/meeko-hookd"
+        return 0
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+        if [[ -x $dest ]]; then
+            say "kept     meeko-hookd (no cargo; installed binary left as it is)"
+        else
+            say "missing  meeko-hookd — no cargo, and nothing at $dest"
+        fi
+        return 0
+    fi
+    local log
+    log=$(mktemp)
+    if act cargo build --release --locked --manifest-path "$REPO/hookd/Cargo.toml" >"$log" 2>&1; then
+        say "built    meeko-hookd (release, --locked)"
+    else
+        say "missing  meeko-hookd — cargo build failed; last lines:"
+        tail -n 6 "$log" | sed 's/^/         /'
+        rm -f "$log"
+        return 0
+    fi
+    rm -f "$log"
+    if [[ ! -x $built ]]; then
+        say "missing  meeko-hookd — build produced no target/release/meeko-hookd"
+        return 0
+    fi
+    if [[ -n $SUDO ]]; then
+        act $SUDO install -m 755 "$built" "$dest" >/dev/null 2>&1 \
+            && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
+            || say "skipped  meeko-hookd (needs root)"
+    else
+        act install -m 755 "$built" "$dest" >/dev/null 2>&1 \
+            && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
+            || say "skipped  meeko-hookd (needs root)"
+    fi
+}
+
 # ── SYSTEMD UNITS ────────────────────────────────────────────────────────────
+# The unit file itself is already in place by the time this runs — `deploy
+# system` copies system/ through the manifest with sudo — so what is left is
+# the reload, the enable, and saying so. The source here is $REPO, never
+# $ROOT: ROOT is the install prefix (/ by default), so `$ROOT/system/…` is a
+# path like /system/etc/… that exists nowhere, and `[[ -f $src ]] || continue`
+# silently skipped both units — dry-run included, which is why the report
+# never said "would install". Caught on the first dry run of this function.
 install_units() {
     applied system-units && return 0
     local unit
     for unit in quickshell.service meeko-hookd.service; do
-        local src="$ROOT/system/etc/systemd/user/$unit"
+        local src="$REPO/system/etc/systemd/user/$unit"
         [[ -f "$src" ]] || continue
         if (( DRY )); then
             say "would install $unit"
