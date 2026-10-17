@@ -222,6 +222,30 @@ else
     printf '%s\n' "$out" | sed 's/^/        /'
 fi
 
+# ── 10. systemd user units ───────────────────────────────────────────────
+# Phase 4 ships two units. `systemd-analyze verify` exits 0 on a bad directive
+# ("Unknown key … ignoring") and non-zero when ExecStart isn't installed — the
+# opposite of what you'd expect, and binaries are legitimately absent in CI —
+# so the verdict is read from the output, not the exit code.
+section "systemd (user units)"
+if command -v systemd-analyze >/dev/null 2>&1; then
+    unit_bad=0
+    while IFS= read -r u; do
+        out=$(systemd-analyze --user verify "$u" 2>&1) || true
+        bad=$(printf '%s\n' "$out" | grep -E "Unknown (key|section)|Invalid |Duplicate |Failed to (parse|resolve)" || true)
+        if [ -n "$bad" ]; then
+            printf '   FAIL systemd verify %s\n' "$u"
+            printf '%s\n' "$bad" | sed 's/^/        /'
+            unit_bad=1
+        else
+            pass "systemd verify $u"
+        fi
+    done < <(git ls-files 'system/**/*.service')
+    if [ "$unit_bad" -ne 0 ]; then fails=$((fails + 1)); fi
+else
+    skip "systemd-analyze" "systemd-analyze" "package: systemd"
+fi
+
 # ── summary ─────────────────────────────────────────────────────────────
 section "summary"
 if [ "$fails" -gt 0 ]; then

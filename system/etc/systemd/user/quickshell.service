@@ -1,9 +1,18 @@
 [Unit]
 Description=Meeko shell (quickshell)
 After=graphical-session.target
-ImportEnvironment=WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR
 
 [Service]
+# Session vars reach the user manager from the compositor session via
+# `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+# XDG_RUNTIME_DIR` (Hyprland exec-once / meeko setup), and this forwards them
+# from the manager into the unit.
+#
+# It has to be PassEnvironment= in [Service]: ImportEnvironment= is not a unit
+# directive in either section — systemd prints "Unknown key … ignoring" and
+# carries on, and `systemd-analyze verify` still exits 0, so the mistake is
+# silent unless you read its output. That is exactly how this shipped once.
+PassEnvironment=WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR
 ExecStart=/usr/bin/qs
 Restart=on-failure
 RestartSec=1s
