@@ -7,6 +7,9 @@ ExecStart=/usr/local/bin/meeko-hookd
 Restart=on-failure
 RestartSec=1s
 MemoryMax=64M
+NoNewPrivileges=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=graphical-session.target

@@ -17,6 +17,8 @@ Restart=on-failure
 RestartSec=1s
 MemoryHigh=350M
 MemoryMax=430M
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=graphical-session.target
