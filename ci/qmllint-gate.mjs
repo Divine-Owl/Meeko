@@ -142,16 +142,28 @@ function scanNotifyCollisions(qmlFiles) {
     return hits;
 }
 
+// One qmllint invocation, retried once. spawnSync comes back with
+// `status === null` and *nothing* on stdout or stderr when the child is
+// killed before it writes (runner memory pressure on a 60-file batch), which
+// is indistinguishable from a real problem unless you report `error`/`signal`
+// too — the first version of this message printed only "exit null" and hid
+// which batch it was, so CI told us nothing.
+function runLint(args) {
+    const opts = {
+        cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
+    };
+    let r = spawnSync(qmllint, args, opts);
+    const dead = r.status === null || (r.error && !(r.stdout ?? '').trim());
+    if (dead) r = spawnSync(qmllint, args, opts);
+    return r;
+}
+
 // ── lint ───────────────────────────────────────────────────────────
 // Returns { errors, warnings, perFile } for one batch of files.
 function lintBatch(batch) {
     const r = HAS_JSON
-        ? spawnSync(qmllint, ['--ignore-settings', '--json', '-', ...batch], {
-            cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-        })
-        : spawnSync(qmllint, ['--ignore-settings', ...batch], {
-            cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-        });
+        ? runLint(['--ignore-settings', '--json', '-', ...batch])
+        : runLint(['--ignore-settings', ...batch]);
     const text = `${r.stdout ?? ''}${r.stderr ?? ''}`;
     const acc = new Map();
 
@@ -176,7 +188,10 @@ function lintBatch(batch) {
         const out = r.stdout ?? '';
         const start = out.indexOf('{');
         if (start < 0) {
-            console.error(`ci/qmllint-gate: qmllint produced no JSON (exit ${r.status})`);
+            console.error(`ci/qmllint-gate: qmllint produced no JSON`
+                + ` (exit ${r.status}${r.error ? ` error=${r.error.code ?? r.error}` : ''}`
+                + `${r.signal ? ` signal=${r.signal}` : ''}) after a retry`);
+            console.error(`batch (${batch.length}): ${batch.slice(0, 8).join(' ')}${batch.length > 8 ? ' …' : ''}`);
             console.error(text.slice(0, 2000));
             process.exit(1);
         }
@@ -188,7 +203,11 @@ function lintBatch(batch) {
             process.exit(1);
         }
         for (const f of report.files ?? []) {
-            for (const w of f.warnings ?? []) bump(f.filename, promote(w.id, w.type));
+            for (const w of f.warnings ?? []) {
+                bump(f.filename, promote(w.id, w.type));
+                // JSON `line` is 1-based (checked against two known sites).
+                if (w.id === 'duplicated-name') dupSites.add(`${f.filename}:${w.line}`);
+            }
         }
     } else {
         // "Warning: file.qml:12:11: Expected token `}' [syntax]"
@@ -197,12 +216,16 @@ function lintBatch(batch) {
             const m = l.match(line);
             if (!m) continue;
             bump(m[2], promote(m[6], m[1]));
+            if (m[6] === 'duplicated-name') dupSites.add(`${m[2]}:${m[3]}`);
         }
     }
     return acc;
 }
 
 const perFile = new Map();
+// File:line sites where qmllint itself reported a promoted duplicated-name —
+// the static guard below covers the same ground and must not count it twice.
+const dupSites = new Set();
 let errors = 0;
 let warnings = 0;
 
@@ -226,9 +249,11 @@ for (const [, c] of perFile) {
 // `property bool foo`; Qt 6.12 does. The QML engine rejects such a file at
 // load time in both cases — one took down HyprlandService entirely — so the
 // rule is checked directly instead of being left to whichever linter the
-// environment happens to provide.
+// environment happens to provide. Findings qmllint already reported are
+// printed but not counted again: one defect, one error.
 const guardHits = scanNotifyCollisions(files);
 for (const g of guardHits) {
+    if (dupSites.has(`${g.file}:${g.line}`)) continue;
     errors += 1;
     const seen = perFile.get(g.file) ?? { errors: 0, warnings: 0 };
     seen.errors += 1;

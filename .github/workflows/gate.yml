@@ -76,7 +76,13 @@ jobs:
       # This runner is Qt 6.4.2 without the Quickshell module, so its ceiling
       # is its own; printing the measurement here means a red lint step always
       # comes with the number that would re-baseline it.
+      #
+      # Diagnostic only: continue-on-error keeps a hiccup here from skipping
+      # the gate itself, which is what actually decides the run. Measuring and
+      # gating are separate on purpose — measurement must never be able to
+      # fail (or pass) the build.
       - name: qmllint baseline (measure)
+        continue-on-error: true
         run: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs
 
       - name: gate
