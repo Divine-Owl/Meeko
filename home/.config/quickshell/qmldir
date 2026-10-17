@@ -58,6 +58,7 @@ singleton PackagesService    1.0 services/PackagesService.qml
 singleton ProfileService     1.0 services/ProfileService.qml
 singleton VersionService     1.0 services/VersionService.qml
 singleton MeekoService      1.0 services/MeekoService.qml
+singleton ShellModeService  1.0 services/ShellModeService.qml
 
 Card             1.0 components/Card.qml
 ColorSwatch      1.0 components/ColorSwatch.qml
