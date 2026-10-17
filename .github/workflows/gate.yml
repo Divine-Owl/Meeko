@@ -1,0 +1,75 @@
+# .github/workflows/gate.yml — the gate, in CI.
+#
+# ci/check.sh is the whole gate; this workflow only provisions the tools it
+# demands and runs it with MEEKO_CI=1, where a missing tool is a failure and
+# nothing can be silently skipped. Running the script by hand on a dev box is
+# the same gate with loud skips — the two must never drift.
+#
+# Toolchain notes:
+#   * qmllint — bare PATH qmllint on many images is Qt5's, which exits 255
+#     with no output on Quickshell files. We install qt6-declarative-dev-tools
+#     and hand the Qt6 binary to ci/qmllint-gate.mjs via MEEKO_QMLLINT.
+#   * gitleaks — release tarball, no action wrapper, so the exact binary is
+#     visible in the log.
+#   * vitest — QA's Phase 3 suite is vitest-based; installed without saving so
+#     the repo stays dependency-free.
+name: gate
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hookd
+
+      - name: provision
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # lua5.4 provides luac5.4 (setup check falls back to that name);
+          # qt6-declarative-dev-tools ships qmllint outside PATH.
+          sudo apt-get install -y --no-install-recommends \
+            lua5.4 zsh qt6-declarative-dev-tools libgl1
+          QMLLINT="$(find /usr/lib/qt6 -type f -name qmllint | head -n1)"
+          test -n "$QMLLINT" || { echo "qmllint not found after install"; exit 1; }
+          echo "MEEKO_QMLLINT=$QMLLINT" >> "$GITHUB_ENV"
+          "$QMLLINT" --version
+
+      - name: gitleaks
+        run: |
+          set -euo pipefail
+          GL_VERSION=8.28.0
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          sudo tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: vitest (phase 3 suite)
+        run: npm install --no-save vitest
+
+      - name: gate
+        run: MEEKO_CI=1 bash ci/check.sh
