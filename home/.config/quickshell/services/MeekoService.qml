@@ -186,6 +186,8 @@ Singleton {
         root.agents = msg.agents ?? []
         root.approvals = msg.approvals ?? []
         root.usage = msg.usage ?? []
+        root.errors = {}
+        root.pending = {}
         const t = {}
         const turnsObj = msg.turns ?? {}
         for (const agentId in turnsObj) {
@@ -243,6 +245,12 @@ Singleton {
             delete next[entryId]
             root.errors = next
         }
+        const next = Object.assign({}, root.pending)
+        for (const k in next) {
+            if (next[k].entryId === entryId)
+                delete next[k]
+        }
+        root.pending = next
     }
 
     function applyUsage(u: var): void {
