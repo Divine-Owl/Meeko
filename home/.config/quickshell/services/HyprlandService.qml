@@ -30,6 +30,8 @@ QtObject {
 
     property int activeId: 1
     property var occupiedIds: []
+    property bool fullscreen: false
+    signal fullscreenChanged()
 
     // Every workspace as hyprctl lists it, for the name an event carries.
     property var named: []
@@ -371,6 +373,14 @@ QtObject {
                 root.focusedAddress = event.data === "" ? "" : `0x${event.data}`
                 if (root.watchClients)
                     root.clientsSoon.restart()
+                break
+            // Fullscreen state changes drive ShellModeService quiet mode.
+            case "fullscreen":
+                root.fullscreen = event.data === "1"
+                root.fullscreenChanged()
+                break
+            case "activewindow":
+                root.focusedProcess.running = true
                 break
             }
         }

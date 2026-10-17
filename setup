@@ -773,13 +773,15 @@ install_units() {
             say "would install $unit"
             continue
         fi
-        act install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" 2>/dev/null || true
-        say "installed $unit"
+        if [[ -n $SUDO ]]; then
+            act $SUDO install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" >/dev/null 2>&1 && say "installed $unit" || say "skipped  $unit (needs root)"
+        else
+            act install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" >/dev/null 2>&1 && say "installed $unit" || say "skipped  $unit (needs root)"
+        fi
     done
     if (( ! DRY )); then
         act systemctl --user daemon-reload >/dev/null 2>&1 || true
-        act systemctl --user enable quickshell.service >/dev/null 2>&1 || true
-        say "enabled  quickshell.service"
+        systemctl --user is-enabled quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable (run me as root or with NOCONFIRM)"
     fi
     stamp system-units
 }
