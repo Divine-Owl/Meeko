@@ -36,6 +36,10 @@ SKIP_PACKAGES=0
 SKIP_SYSTEM=0
 SKIP_PLUGINS=0
 SKIP_EXTRAS=0
+# Set when a step reported a failure it could not complete (hookd not built,
+# so not installed, so not enabled). main returns non-zero for it at the end
+# instead of aborting mid-verb: see verb_system.
+HOOKD_FAILED=0
 SUDO=
 SOFT=
 # Whether the desk was up when this run began: an install can take it down.
@@ -701,10 +705,19 @@ verb_system() {
     act $SUDO install -d -m 755 "$ROOT/var/lib/impasto/faces"
     display_manager
     i2c_dev
+    # install_hookd reports its own failures. Called bare, its `return 1`
+    # would trip set -e right here and abort the system verb — no units, no
+    # swap line, no first-run flag, quickshell never enabled — a bigger
+    # failure than the one being reported. Carry the status instead and let
+    # install_units decide from what actually landed on disk; the verb still
+    # ends non-zero (see main), just after everything else has run.
+    local hookd_rc=0
+    install_hookd || hookd_rc=1
     install_units
     detect_swap
     write_firstrun
     SUDO=
+    if (( hookd_rc )); then HOOKD_FAILED=1; fi
 }
 
 # ── SWAP / ZRAM DETECTION ────────────────────────────────────────────────────
@@ -742,15 +755,89 @@ write_firstrun() {
     say "wrote     first-run flag (welcome panel)"
 }
 
+# ── HOOKD BINARY ─────────────────────────────────────────────────────────────
+# meeko-hookd.service ExecStarts /usr/local/bin/meeko-hookd, and nothing else
+# on the box provides it — installing the unit alone hands systemd a 203/EXEC
+# under Restart=on-failure, which reads as a broken daemon rather than a step
+# the install never did.
+#
+# Built as the invoking user, so target/ stays ours: the unit reads
+# /usr/local/bin, never target/, so a later cleanup can drop the build tree
+# and the daemon keeps running. The one privileged step is the copy, through
+# act like every other change here, so --dry-run still changes nothing.
+# --locked installs exactly the Cargo.lock CI tested or fails loudly, instead
+# of resolving newer crates at install time than the ones under test.
+install_hookd() {
+    local dest="$ROOT/usr/local/bin/meeko-hookd"
+    local built="$REPO/hookd/target/release/meeko-hookd"
+    if (( DRY )); then
+        say "would build hookd (--locked, release) and install → /usr/local/bin/meeko-hookd"
+        return 0
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+        if [[ -x $dest ]]; then
+            say "kept     meeko-hookd (no cargo; installed binary left as it is)"
+            return 0
+        else
+            say "missing  meeko-hookd — no cargo, and nothing at $dest"
+            return 1
+        fi
+    fi
+    local log
+    log=$(mktemp)
+    if act cargo build --release --locked --manifest-path "$REPO/hookd/Cargo.toml" >"$log" 2>&1; then
+        say "built    meeko-hookd (release, --locked)"
+    else
+        say "missing  meeko-hookd — cargo build failed; last lines:"
+        tail -n 6 "$log" | sed 's/^/         /'
+        rm -f "$log"
+        return 1
+    fi
+    rm -f "$log"
+    if [[ ! -x $built ]]; then
+        say "missing  meeko-hookd — build produced no target/release/meeko-hookd"
+        return 1
+    fi
+    if [[ -n $SUDO ]]; then
+        act $SUDO install -m 755 "$built" "$dest" >/dev/null 2>&1 \
+            && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
+            || { say "skipped  meeko-hookd (needs root)"; return 1; }
+    else
+        act install -m 755 "$built" "$dest" >/dev/null 2>&1 \
+            && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
+            || { say "skipped  meeko-hookd (needs root)"; return 1; }
+    fi
+    return 0
+}
+
 # ── SYSTEMD UNITS ────────────────────────────────────────────────────────────
+# The unit file itself is already in place by the time this runs — `deploy
+# system` copies system/ through the manifest with sudo — so what is left is
+# the reload, the enable, and saying so. The source here is $REPO, never
+# $ROOT: ROOT is the install prefix (/ by default), so `$ROOT/system/…` is a
+# path like /system/etc/… that exists nowhere, and `[[ -f $src ]] || continue`
+# silently skipped both units — dry-run included, which is why the report
+# never said "would install". Caught on the first dry run of this function.
 install_units() {
     applied system-units && return 0
-    local unit
+    local unit hookd_ok=0
     for unit in quickshell.service meeko-hookd.service; do
-        local src="$ROOT/system/etc/systemd/user/$unit"
+        local src="$REPO/system/etc/systemd/user/$unit"
         [[ -f "$src" ]] || continue
         if (( DRY )); then
+            # The intent for this run, not the state of the disk right now —
+            # install_hookd has already said whether the binary will be built,
+            # so reporting "skipped, not installed" here would contradict it.
             say "would install $unit"
+            continue
+        fi
+        # deploy's manifest copy may already have put the file in place, so
+        # refusing the file proves nothing: what must not happen is *enabling*
+        # a unit whose daemon is absent — systemd would 203/EXEC it under
+        # Restart=on-failure, which reads as a broken daemon rather than a
+        # build that never happened. Decided from what is on disk, here.
+        if [[ $unit == meeko-hookd.service && ! -x $ROOT/usr/local/bin/meeko-hookd ]]; then
+            say "skipped  $unit — binary not installed"
             continue
         fi
         if [[ -n $SUDO ]]; then
@@ -758,12 +845,31 @@ install_units() {
         else
             act install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" >/dev/null 2>&1 && say "installed $unit" || say "skipped  $unit (needs root)"
         fi
+        if [[ $unit == meeko-hookd.service ]]; then hookd_ok=1; fi
     done
     if (( ! DRY )); then
         act systemctl --user daemon-reload >/dev/null 2>&1 || true
+        # quickshell never depends on hookd: a daemon that failed to build
+        # must not cost the shell its autostart. hookd's enable is the one
+        # that is conditional — the plan installs both units via `systemctl
+        # --user enable`, and nothing else in this repo starts the daemon, so
+        # without this it never runs at all.
         act systemctl --user enable quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable quickshell.service"
+        if (( hookd_ok )); then
+            act systemctl --user enable meeko-hookd.service >/dev/null 2>&1 && say "enabled  meeko-hookd.service" || say "skipped  enable meeko-hookd.service"
+        else
+            say "left    meeko-hookd.service unenabled — no binary to run"
+        fi
+        # No stamp when hookd did not land: the next run must retry, or a
+        # first attempt that failed to build would permanently skip this
+        # function with the stamp claiming the units are done. A dry run
+        # stamps nothing anyway (stamp no-ops under DRY), so it says nothing.
+        if (( hookd_ok )); then
+            stamp system-units
+        else
+            say "left    system-units unstamped — hookd still to install"
+        fi
     fi
-    stamp system-units
 }
 
 # ddcutil reaches external monitors through /dev/i2c-*. Its package loads
@@ -1662,6 +1768,15 @@ main() {
         help|-h|--help) usage ;;
         *)         fail "unknown command: $verb (./setup help)" ;;
     esac
+
+    # A step that reported a failure it could not complete still exits
+    # non-zero — but only once every other step has run. set -e would turn a
+    # bare `return 1` from install_hookd into an abort of the whole system
+    # verb: no units, no swap line, no first-run flag, quickshell never
+    # enabled. Loud and complete beats loud and half-done.
+    if (( HOOKD_FAILED )); then
+        return 1
+    fi
 }
 
 main "$@"
