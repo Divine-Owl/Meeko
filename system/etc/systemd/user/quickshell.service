@@ -1,6 +1,7 @@
 [Unit]
 Description=Meeko shell (quickshell)
 After=graphical-session.target
+ImportEnvironment=WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR
 
 [Service]
 ExecStart=/usr/bin/qs

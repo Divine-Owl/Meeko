@@ -25,6 +25,9 @@ import "../services"
 ShaderEffect {
     id: root
 
+    // Quiet mode suspends the shader — ShellModeService drives it.
+    visible: ShellModeService.mode === "active"
+
     property string edge: "bottom"
     property string style: "rounded"
     property string fillStyle: "fade"

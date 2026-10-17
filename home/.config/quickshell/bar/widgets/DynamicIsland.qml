@@ -150,12 +150,20 @@ Rectangle {
     // ── QUIET MODE ───────────────────────────────────────────────────────────
     // ShellModeService drives this: quiet suspends animation behaviors and
     // GPU surfaces (spectrum shader, sheen/blur); bar stays static; hookd
-    // socket stays live. One coalesced frame on exit.
+    // socket stays live. One coalesced frame on exit — animations re-enable
+    // one frame after the final state renders, so there is no catch-up burst.
     readonly property Connections shellModeWatch: Connections {
         target: ShellModeService
 
         function onModeChanged(): void {
-            root.animated = ShellModeService.mode === "active"
+            if (ShellModeService.mode === "active") {
+                // Coalesced exit: render the final state with animations off,
+                // then re-enable next frame so only one clean frame appears.
+                root.animated = false
+                Qt.callLater(() => { root.animated = true })
+            } else {
+                root.animated = false
+            }
         }
     }
 
@@ -212,9 +220,10 @@ Rectangle {
     }
 
     // Under everything the island holds; a note's paper is not glass.
+    // Quiet mode suspends the sheen (GPU surface) — ShellModeService drives it.
     GlassSheen {
         shape: root
-        visible: Theme.glass && !root.paper && !root.hosted
+        visible: Theme.glass && !root.paper && !root.hosted && ShellModeService.mode === "active"
         edges: !SettingsService.islandAttached
     }
 
