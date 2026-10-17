@@ -3,10 +3,10 @@ Description=Meeko shell (quickshell)
 After=graphical-session.target
 
 [Service]
-# Session vars reach the user manager from the compositor session via
-# `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
-# XDG_RUNTIME_DIR` (Hyprland exec-once / meeko setup), and this forwards them
-# from the manager into the unit.
+# Forward compositor session vars from the user manager into the unit.
+# The manager's env is populated by the host session (Hyprland exec-once
+# or manual `systemctl --user import-environment`); PassEnvironment= reads
+# the manager's env at unit activation time.
 #
 # PassEnvironment= is the correct [Service] directive. ImportEnvironment= is not
 # valid in either section — systemd prints "Unknown key … ignoring" and carries on,
