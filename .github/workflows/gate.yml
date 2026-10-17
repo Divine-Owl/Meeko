@@ -17,7 +17,11 @@ name: gate
 
 on:
   push:
-    branches: [main, 'feature/**']
+    # Every branch convention this repo actually uses, not just feature/*:
+    # the fix/ and chore/ branches are what ship to main too, and gating them
+    # only when someone remembers to dispatch by hand is how a commit gets
+    # approved with no run behind it (c0ce20c did exactly that).
+    branches: [main, 'feature/**', 'fix/**', 'chore/**', 'refactor/**']
   pull_request:
   workflow_dispatch:
 
