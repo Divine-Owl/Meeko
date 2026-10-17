@@ -11,8 +11,9 @@
 //      access, unused imports) that predate the Meeko phases. Failing on all
 //      of them makes the gate unrunnable; ignoring them hides new ones. So
 //      warnings are capped by a committed baseline and *errors always fail*,
-//      whatever the baseline says. A qmllint "syntax" finding counts as an
-//      error even though Qt reports it with warning severity.
+//      whatever the baseline says. qmllint "syntax" and "duplicated-name"
+//      findings are promoted to errors: Qt reports both with warning severity,
+//      yet the QML engine refuses to load such a file at all.
 //   3. A warning count is a property of the *environment*, not just the tree:
 //      Qt 6.12 with the Quickshell module installed reports ~6.9k warnings for
 //      this repo, Qt 6.4 without it reports ~65k (every `import Quickshell`
@@ -130,8 +131,14 @@ function lintBatch(batch) {
 
     // A syntax failure is reported with severity *warning* (the ladder has no
     // hard-error bucket for it), so it has to be promoted by id — otherwise a
-    // broken file hides under the warning baseline.
-    const promote = (id, severity) => severity === 'error' || severity === 'Error' || id === 'syntax';
+    // broken file hides under the warning baseline. `duplicated-name` is
+    // promoted for the same reason: declaring `signal fooChanged()` alongside
+    // `property bool foo` makes the QML engine refuse the whole file at load
+    // time (verified with the Qt 6.12 `qml` runner: rc 2 "Did not load any
+    // objects", identical to a deliberate syntax error), yet qmllint only
+    // calls it a warning. One such file took down an entire service.
+    const promote = (id, severity) => severity === 'error' || severity === 'Error'
+        || id === 'syntax' || id === 'duplicated-name';
 
     if (HAS_JSON) {
         const out = r.stdout ?? '';
@@ -208,8 +215,10 @@ const BASELINE_HEADER = [
     '# each environment carries its own ceiling and an unrecorded one fails',
     '# loudly rather than guessing.',
     '#',
-    '# Lint *errors* — including qmllint "syntax" findings, which it reports with',
-    '# warning severity — fail in every environment regardless of these numbers.',
+    '# Lint *errors* — including qmllint "syntax" and "duplicated-name" findings,',
+    '# which it reports with warning severity even though the QML engine rejects',
+    '# the file at load time — fail in every environment regardless of these',
+    '# numbers.',
     '#',
     '# Bootstrap: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs',
     '# Record:    node ci/qmllint-gate.mjs --update-baseline',

@@ -11,10 +11,12 @@
 # each environment carries its own ceiling and an unrecorded one fails
 # loudly rather than guessing.
 #
-# Lint *errors* — including qmllint "syntax" findings, which it reports with
-# warning severity — fail in every environment regardless of these numbers.
+# Lint *errors* — including qmllint "syntax" and "duplicated-name" findings,
+# which it reports with warning severity even though the QML engine rejects
+# the file at load time — fail in every environment regardless of these
+# numbers.
 #
 # Bootstrap: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs
 # Record:    node ci/qmllint-gate.mjs --update-baseline
-6.12.0-quickshell=7022  # dev box, Qt 6.12.0 + Quickshell 0.3.2 installed, 2026-10-17
+6.12.0-quickshell=7029  # +7 over 7022: five Phase 4 files (ShellModeService new +4, DynamicIsland +3, HyprlandService +1, SpectrumBars/ModuleService +0); HyprlandService:35 duplicated-name promoted to error, not counted here, 2026-10-17
 6.4.2-noquickshell=64721  # ubuntu-24.04 Actions runner, Qt 6.4.2, no Quickshell module, 2026-10-17 run 39026868050
