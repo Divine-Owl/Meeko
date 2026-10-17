@@ -765,10 +765,11 @@ install_hookd() {
     if ! command -v cargo >/dev/null 2>&1; then
         if [[ -x $dest ]]; then
             say "kept     meeko-hookd (no cargo; installed binary left as it is)"
+            return 0
         else
             say "missing  meeko-hookd — no cargo, and nothing at $dest"
+            return 1
         fi
-        return 0
     fi
     local log
     log=$(mktemp)
@@ -778,22 +779,23 @@ install_hookd() {
         say "missing  meeko-hookd — cargo build failed; last lines:"
         tail -n 6 "$log" | sed 's/^/         /'
         rm -f "$log"
-        return 0
+        return 1
     fi
     rm -f "$log"
     if [[ ! -x $built ]]; then
         say "missing  meeko-hookd — build produced no target/release/meeko-hookd"
-        return 0
+        return 1
     fi
     if [[ -n $SUDO ]]; then
         act $SUDO install -m 755 "$built" "$dest" >/dev/null 2>&1 \
             && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
-            || say "skipped  meeko-hookd (needs root)"
+            || { say "skipped  meeko-hookd (needs root)"; return 1; }
     else
         act install -m 755 "$built" "$dest" >/dev/null 2>&1 \
             && say "installed meeko-hookd → /usr/local/bin/meeko-hookd" \
-            || say "skipped  meeko-hookd (needs root)"
+            || { say "skipped  meeko-hookd (needs root)"; return 1; }
     fi
+    return 0
 }
 
 # ── SYSTEMD UNITS ────────────────────────────────────────────────────────────
@@ -807,9 +809,14 @@ install_hookd() {
 install_units() {
     applied system-units && return 0
     local unit
+    local hookd_ok=0
     for unit in quickshell.service meeko-hookd.service; do
         local src="$REPO/system/etc/systemd/user/$unit"
         [[ -f "$src" ]] || continue
+        if [[ "$unit" == "meeko-hookd.service" ]] && [[ ! -x "$ROOT/usr/local/bin/meeko-hookd" ]]; then
+            say "skipped  $unit — binary not installed"
+            continue
+        fi
         if (( DRY )); then
             say "would install $unit"
             continue
@@ -819,10 +826,15 @@ install_units() {
         else
             act install -m 644 "$src" "$ROOT/etc/systemd/user/$unit" >/dev/null 2>&1 && say "installed $unit" || say "skipped  $unit (needs root)"
         fi
+        [[ "$unit" == "meeko-hookd.service" ]] && hookd_ok=1
     done
     if (( ! DRY )); then
         act systemctl --user daemon-reload >/dev/null 2>&1 || true
-        act systemctl --user enable quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable quickshell.service"
+        if [[ $hookd_ok -eq 1 ]]; then
+            act systemctl --user enable quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable quickshell.service"
+        else
+            say "skipped  enable — hookd binary not present"
+        fi
     fi
     stamp system-units
 }
