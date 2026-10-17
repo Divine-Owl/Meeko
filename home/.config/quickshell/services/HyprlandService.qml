@@ -31,7 +31,6 @@ QtObject {
     property int activeId: 1
     property var occupiedIds: []
     property bool fullscreen: false
-    signal fullscreenChanged()
 
     // Every workspace as hyprctl lists it, for the name an event carries.
     property var named: []

@@ -761,7 +761,7 @@ install_units() {
     done
     if (( ! DRY )); then
         act systemctl --user daemon-reload >/dev/null 2>&1 || true
-        systemctl --user is-enabled quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable (run me as root or with NOCONFIRM)"
+        act systemctl --user enable quickshell.service >/dev/null 2>&1 && say "enabled  quickshell.service" || say "skipped  enable quickshell.service"
     fi
     stamp system-units
 }
