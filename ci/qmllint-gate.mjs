@@ -110,6 +110,38 @@ if (files.length === 0) {
     process.exit(1);
 }
 
+// ── static guard: notify-signal collisions ──────────────────────────
+// `property bool foo` gives the type a `fooChanged()` notify signal for free.
+// Declaring `signal fooChanged()` as well makes the QML engine refuse the
+// whole file at load time — verified with the Qt 6.12 `qml` runner: rc 2,
+// "Did not load any objects", identical to a deliberate syntax error.
+function scanNotifyCollisions(qmlFiles) {
+    const PROP = /^\s*property\s+(?:readonly\s+)?[\w.]+(?:<[^>]*>)?\s+([A-Za-z_]\w*)\s*[:=]/;
+    const SIGNAL = /^\s*signal\s+([A-Za-z_]\w*)\s*\(/;
+    const hits = [];
+    for (const f of qmlFiles) {
+        let lines;
+        try {
+            lines = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8').split('\n');
+        } catch { continue; }
+        const props = new Map();
+        const signals = new Map();
+        lines.forEach((l, i) => {
+            const p = l.match(PROP);
+            if (p) props.set(p[1], i + 1);
+            const s = l.match(SIGNAL);
+            if (s) signals.set(s[1], i + 1);
+        });
+        for (const [name, line] of signals) {
+            const prop = name.endsWith('Changed') ? name.slice(0, -'Changed'.length) : null;
+            if (prop && props.has(prop)) {
+                hits.push({ file: f, line, message: `signal ${name}() collides with the notify signal of property "${prop}" (line ${props.get(prop)}) — the engine refuses to load this file` });
+            }
+        }
+    }
+    return hits;
+}
+
 // ── lint ───────────────────────────────────────────────────────────
 // Returns { errors, warnings, perFile } for one batch of files.
 function lintBatch(batch) {
@@ -187,6 +219,20 @@ for (let i = 0; i < files.length; i += CHUNK) {
 for (const [, c] of perFile) {
     errors += c.errors;
     warnings += c.warnings;
+}
+
+// ── static guards (linter-version independent) ──────────────────────
+// Qt 6.4's qmllint does not report `signal fooChanged()` declared next to
+// `property bool foo`; Qt 6.12 does. The QML engine rejects such a file at
+// load time in both cases — one took down HyprlandService entirely — so the
+// rule is checked directly instead of being left to whichever linter the
+// environment happens to provide.
+const guardHits = scanNotifyCollisions(files);
+for (const g of guardHits) {
+    errors += 1;
+    const seen = perFile.get(g.file) ?? { errors: 0, warnings: 0 };
+    seen.errors += 1;
+    perFile.set(g.file, seen);
 }
 
 // ── verdict ────────────────────────────────────────────────────────
@@ -268,6 +314,9 @@ const mode = explicit.length ? 'files' : 'tree';
 
 if (errors > 0) {
     console.error(`\nqmllint gate (${mode}): FAIL — ${errors} lint error(s)`);
+    for (const g of guardHits) {
+        console.error(`  guard  ${g.file}:${g.line} — ${g.message}`);
+    }
     for (const [f, c] of sorted.filter(([, c]) => c.errors > 0).slice(0, 20)) {
         console.error(`  ${String(c.errors).padStart(4)} errors  ${f}`);
     }
