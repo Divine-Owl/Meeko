@@ -71,5 +71,13 @@ jobs:
       - name: vitest (phase 3 suite)
         run: npm install --no-save vitest
 
+      # The warning ceiling is keyed by environment signature (qt version +
+      # whether the Quickshell module resolves) — see ci/qmllint-baseline.txt.
+      # This runner is Qt 6.4.2 without the Quickshell module, so its ceiling
+      # is its own; printing the measurement here means a red lint step always
+      # comes with the number that would re-baseline it.
+      - name: qmllint baseline (measure)
+        run: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs
+
       - name: gate
         run: MEEKO_CI=1 bash ci/check.sh

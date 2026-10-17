@@ -1,2 +1,18 @@
-json=6888
-text=6387
+# ci/qmllint-baseline.txt — warning ceilings, one per environment signature.
+#
+# Format: <signature>=<warnings>   (# starts a comment)
+# Signature = <qt version>-quickshell|-noquickshell, plus -text when the
+# Qt <= 6.4 text report is used instead of --json.
+#
+# Warning counts are a property of the environment, not only of the tree: this
+# repo is ~7k warnings on Qt 6.12 with the Quickshell module installed and
+# ~65k on Qt 6.4 without it (every `import Quickshell` resolves to nothing). A
+# single number for both is a ratchet that only ever fails, so each
+# environment carries its own ceiling and an unrecorded one fails loudly.
+#
+# Lint *errors* — including qmllint "syntax" findings, which it reports with
+# warning severity — fail in every environment regardless of these numbers.
+#
+# Bootstrap a new environment: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs
+# Record it:                node ci/qmllint-gate.mjs --update-baseline
+6.12.0-quickshell=7022
