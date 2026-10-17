@@ -62,12 +62,10 @@ for pair in "meeko	status" "meeko	panel"; do
     fi
 done
 
-# ── 5. meeko status returns the spec'd envelope shape ───────────────────
-if ! grep -q 'link: { state: "offline", rev: 0, hostVersion: null }' "$COMMANDS"; then
-    echo "verbs.static: FAIL — meeko status missing link envelope shape"
-    fail=1
-fi
-for key in agents approvals dropCount; do
+# ── 5. meeko status returns the spec'd envelope shape (keys, not values) ─
+# Spec §6.2: shape only — link/agents/approvals/dropCount keys must be present.
+# Values are host-fed and arrive in Phase 2+; the test must not assert them.
+for key in link agents approvals dropCount; do
     if ! grep -q "$key:" "$COMMANDS"; then
         echo "verbs.static: FAIL — meeko status missing $key in result"
         fail=1

@@ -121,22 +121,21 @@ if [ "$FAST" -eq 1 ]; then
 fi
 
 # ── 5. qmllint ──────────────────────────────────────────────────────────
-# Locally qmllint crashes on files importing the Quickshell QML module when
-# it isn't installed (pre-existing, affects the pristine import equally) —
-# CI installs Quickshell and enforces this for real.
-section "qml lint (qmllint)"
-if command -v qmllint >/dev/null 2>&1; then
-    if out=$(qmllint home/.config/quickshell 2>&1); then
-        pass "qmllint"
-    elif [ "$STRICT" = 1 ]; then
-        failure "qmllint"
-        printf '%s\n' "$out" | sed 's/^/        /'
+# The linter is pinned by path, not taken from PATH: on most boxes the bare
+# `qmllint` is Qt5's (qt5-declarative) and exits 255 with *no output* on any
+# Quickshell file — which used to read as "lint is broken here" and let this
+# gate pass while linting nothing. Warnings are ratcheted by a committed
+# baseline so legacy noise can't hide new breakage; errors always fail.
+section "qml lint (qmllint — Qt6, errors fail, warnings ≤ baseline)"
+if command -v node >/dev/null 2>&1; then
+    if out=$(node ci/qmllint-gate.mjs 2>&1); then
+        pass "qmllint (Qt6 gate)"
     else
-        printf '   note qmllint did not run clean locally (known: Quickshell QML module not installed) — enforced in CI\n'
-        skips=$((skips + 1))
+        failure "qmllint (Qt6 gate)"
+        printf '%s\n' "$out" | sed 's/^/        /'
     fi
 else
-    skip "qmllint" "qmllint" "package: quickshell / qt6-declarative"
+    skip "qmllint" "node" "package: nodejs"
 fi
 
 # ── 6. secret scan ──────────────────────────────────────────────────────
@@ -183,7 +182,35 @@ if ! command -v node >/dev/null 2>&1; then
 elif [ -z "$cargo_manifest" ]; then
     printf '   n/a  no Cargo.toml in tree yet (Phase 2+)\n'
 else
-    run_or_fail "contract" node tests/qa/phase2/contract.test.js
+    # Build unconditionally. The suite's own before() skips cargo when the
+    # binary merely *exists*, so a stale meeko-hookd (older checkout, shared
+    # target dir) silently runs against the current test file and turns real
+    # contract drift into "the tests are flaky".
+    run_or_fail "cargo build (hookd)" cargo build --manifest-path "$cargo_manifest"
+    # git stores no mode bits beyond the exec bit, so a fresh clone lands this
+    # fixture at 0644 — hookd refuses group/other-readable tokens and the whole
+    # suite dies on "socket not found". Set it here, once, for every clone.
+    if [ -f tests/fixtures/token ]; then
+        chmod 600 tests/fixtures/token
+        pass "fixture token mode 0600"
+    else
+        failure "fixture token missing (tests/fixtures/token)"
+    fi
+    run_or_fail "contract" node --test tests/qa/phase2/contract.test.js
+fi
+
+# ── 8b. phase 3 agent-surface suite (vitest) ─────────────────────────────
+# QA's Phase 3 file is vitest-based, not node:test — it needs vitest on the
+# box (CI installs it; a dev box may not).
+section "agent-surface (vitest)"
+if [ ! -f tests/qa/phase3/agent-surface.test.js ]; then
+    printf '   n/a  no phase 3 suite in tree\n'
+elif ! command -v node >/dev/null 2>&1; then
+    skip "agent-surface" "node" "package: nodejs"
+elif ! npx --no-install vitest --version >/dev/null 2>&1; then
+    skip "agent-surface" "vitest" "npm install --save-dev vitest"
+else
+    run_or_fail "agent-surface" npx --no-install vitest run tests/qa/phase3
 fi
 
 # ── 9. whitespace hygiene ───────────────────────────────────────────────

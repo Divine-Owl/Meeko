@@ -524,7 +524,7 @@ test('FLOW-01: full approval path (add → respond → resolve)', async () => {
     // Verify approval is in the projection
     const listRes = await c.send({ id: 300, verb: 'approvals.list' });
     const approvals = listRes.result.approvals;
-    const flowApproval = approvals.find((a) => a.entry_id === 'flow1');
+    const flowApproval = approvals.find((a) => a.entryId === 'flow1');
     assert.ok(flowApproval, 'flow1 approval should be in projection');
 
     // Respond to the approval
