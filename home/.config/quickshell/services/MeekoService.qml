@@ -171,7 +171,9 @@ Singleton {
         if (!msg.ok) {
             const error = msg.error ?? "unknown"
             if (intent.type === "respondApproval") {
-                root.errors[intent.entryId] = error
+                const next = Object.assign({}, root.errors)
+                next[intent.entryId] = error
+                root.errors = next
             }
         }
     }
@@ -236,7 +238,11 @@ Singleton {
 
     function applyApprovalResolve(entryId: string): void {
         root.approvals = root.approvals.filter(a => a.entryId !== entryId)
-        delete root.errors[entryId]
+        if (root.errors[entryId]) {
+            const next = Object.assign({}, root.errors)
+            delete next[entryId]
+            root.errors = next
+        }
     }
 
     function applyUsage(u: var): void {
