@@ -37,6 +37,17 @@ ColumnLayout {
     readonly property bool pending: MeekoService.approvals.some(
         a => a.entryId === root.entryId)
     readonly property string error: MeekoService.errors[root.entryId] ?? ""
+    property string offlineNotice: ""
+
+    // Offline feedback: send() emits sendFailed when the socket is down.
+    readonly property Connections sendWatch: Connections {
+        target: MeekoService
+
+        function onSendFailed(verb: string): void {
+            if (verb === "respondApproval")
+                root.offlineNotice = "Offline — verdict not sent"
+        }
+    }
     readonly property bool hasError: root.error !== ""
 
     spacing: Theme.cardRowGap
@@ -90,6 +101,15 @@ ColumnLayout {
         color: Theme.red
         font.pixelSize: Theme.fontSizeSmall
         font.weight: Font.Medium
+    }
+
+    // ── OFFLINE NOTICE ───────────────────────────────────────────────────────
+
+    Text {
+        visible: root.offlineNotice !== ""
+        text: root.offlineNotice
+        color: Theme.indicatorWarn
+        font.pixelSize: Theme.fontSizeSmall
     }
 
     // ── RESOLVED STATE ───────────────────────────────────────────────────────

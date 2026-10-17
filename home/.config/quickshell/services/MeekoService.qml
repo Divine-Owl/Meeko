@@ -44,6 +44,9 @@ Singleton {
     property var usage: []
     property int dropCount: 0
 
+    // ── SIGNALS ──────────────────────────────────────────────────────────────
+    signal sendFailed(string verb)
+
     // turns: map of agentId → array of Turn (for panel display)
     property var turns: ({})
 
@@ -310,8 +313,10 @@ Singleton {
     // Verdicts go through the socket, never qs ipc (CR&S constraint 1).
 
     function send(verb: string, params: var): void {
-        if (root.linkState !== "online")
+        if (root.linkState !== "online") {
+            root.sendFailed(verb)
             return
+        }
         const id = root.nextId++
         root.pending[id] = { type: verb, entryId: params?.entryId }
         const line = JSON.stringify({ id, verb, params: params ?? {} })
