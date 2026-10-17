@@ -192,13 +192,35 @@ const measureOnly = process.env.MEEKO_QMLLINT_MEASURE === '1';
 console.log(`qmllint: ${files.length} files · ${errors} errors · ${warnings} warnings (${qmllint} ${version.replace('qmllint ', '')})`);
 console.log(`env: ${SIGNATURE} · baseline file: ci/qmllint-baseline.txt`);
 
-// `<signature>=<warnings>` per line; `#` lines are free-form notes.
+// `<signature>=<warnings>` per line (optional `# provenance` note); other
+// lines are free-form comments and are rewritten from BASELINE_HEADER below.
+const BASELINE_HEADER = [
+    '# ci/qmllint-baseline.txt — warning ceilings, one per environment signature.',
+    '#',
+    '# Format: <signature>=<warnings>  [# provenance]',
+    '# Signature = <qt version>-quickshell|-noquickshell, plus -text when the',
+    '# Qt <= 6.4 text report is used instead of --json.',
+    '#',
+    '# Warning counts are a property of the environment, not only of the tree:',
+    '# this repo is ~7k warnings on Qt 6.12 with the Quickshell module installed',
+    '# and ~65k on Qt 6.4 without it (every `import Quickshell` resolves to',
+    '# nothing). A single number for both is a ratchet that only ever fails, so',
+    '# each environment carries its own ceiling and an unrecorded one fails',
+    '# loudly rather than guessing.',
+    '#',
+    '# Lint *errors* — including qmllint "syntax" findings, which it reports with',
+    '# warning severity — fail in every environment regardless of these numbers.',
+    '#',
+    '# Bootstrap: MEEKO_QMLLINT_MEASURE=1 node ci/qmllint-gate.mjs',
+    '# Record:    node ci/qmllint-gate.mjs --update-baseline',
+];
+
 function readBaseline() {
     const map = new Map();
     try {
         for (const l of fs.readFileSync(BASELINE_FILE, 'utf8').split('\n')) {
-            const m = l.match(/^([A-Za-z0-9._-]+)\s*=\s*(\d+)\s*$/);
-            if (m) map.set(m[1], Number(m[2]));
+            const m = l.match(/^([A-Za-z0-9._-]+)\s*=\s*(\d+)\s*(#.*)?$/);
+            if (m) map.set(m[1], { value: Number(m[2]), note: m[3] ?? '' });
         }
     } catch { /* absent until --update-baseline */ }
     return map;
@@ -207,15 +229,16 @@ function readBaseline() {
 const baselineMap = readBaseline();
 
 if (updateBaseline) {
-    const previous = baselineMap.get(SIGNATURE);
-    baselineMap.set(SIGNATURE, warnings);
-    const lines = [...baselineMap.entries()].sort().map(([k, v]) => `${k}=${v}`);
-    lines.push('# measured per environment: warning counts are not portable between',
-        '# qmllint versions or across Quickshell module availability.',
-        '# Bootstrap a new environment with MEEKO_QMLLINT_MEASURE=1 in CI.',
-        '# Errors (incl. qmllint "syntax") fail everywhere regardless.');
-    fs.writeFileSync(BASELINE_FILE, lines.join('\n') + '\n');
-    console.log(`baseline ${previous === undefined ? 'created' : 'updated'}: ${SIGNATURE}=${warnings}${previous !== undefined && previous !== warnings ? ` (was ${previous})` : ''}`);
+    const existing = baselineMap.get(SIGNATURE);
+    baselineMap.set(SIGNATURE, {
+        value: warnings,
+        note: existing?.note || `# measured ${new Date().toISOString().slice(0, 10)} in this environment`,
+    });
+    const lines = [...baselineMap.entries()].sort().map(
+        ([k, e]) => `${k}=${e.value}  ${e.note}`.trimEnd(),
+    );
+    fs.writeFileSync(BASELINE_FILE, [...BASELINE_HEADER, ...lines].join('\n') + '\n');
+    console.log(`baseline ${existing === undefined ? 'created' : 'updated'}: ${SIGNATURE}=${warnings}${existing && existing.value !== warnings ? ` (was ${existing.value})` : ''}`);
 }
 
 if (measureOnly) {
@@ -223,7 +246,7 @@ if (measureOnly) {
     process.exit(0);
 }
 
-const baseline = baselineMap.get(SIGNATURE);
+const baseline = baselineMap.get(SIGNATURE)?.value;
 if (baseline === undefined) {
     console.error(`\nqmllint gate: no baseline for this environment (${SIGNATURE}).`);
     console.error('  warning counts differ by Qt version and by whether the Quickshell module');
