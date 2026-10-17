@@ -85,6 +85,12 @@ Singleton {
         })
     }
 
+    function safeTurn(turn: var): var {
+        return Object.assign({}, turn, {
+            preview: root.escapeDisplay(turn.preview || "")
+        })
+    }
+
     // ── SOCKET CONNECTION ───────────────────────────────────────────────────
     // Native Quickshell Socket — in-process, no extra resident process.
     // `connected: true` begins connecting; setting it false disconnects.
@@ -214,7 +220,7 @@ Singleton {
         const t = {}
         const turnsObj = msg.turns ?? {}
         for (const agentId in turnsObj) {
-            t[agentId] = turnsObj[agentId]
+            t[agentId] = (turnsObj[agentId] || []).map(turn => root.safeTurn(turn))
         }
         root.turns = t
     }
@@ -239,8 +245,9 @@ Singleton {
     function applyTurnAdd(turn: var): void {
         if (!turn || !turn.id || !turn.agentId)
             return
+        const safe = root.safeTurn(turn)
         const existing = root.turns[turn.agentId] ?? []
-        const next = existing.concat([turn])
+        const next = existing.concat([safe])
         while (next.length > 50) {
             next.shift()
             root.dropCount++
