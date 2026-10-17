@@ -25,27 +25,38 @@ class MockMeekoService {
     this.pendingApprovals = new Map();
     this.sent = [];
     this.socket = null;
+    this._nextId = 0;
   }
 
   escapeDisplay(str) {
     if (typeof str !== "string") return str;
+    // Idempotent: an `&` already forming an entity (e.g. "&amp;") is left
+    // alone, so escaping twice cannot turn "&amp;" into "&amp;amp;".
     return str
-      .replace(/&/g, "&amp;")
+      .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
   }
 
-  isPending(entryId) {
-    return this.pendingApprovals.has(entryId);
+  // Pending entries are keyed by the request id assigned in respondApproval(),
+  // but callers also look up by the approval's entryId. Support both.
+  isPending(id) {
+    if (this.pendingApprovals.has(id)) return true;
+    for (const intent of this.pendingApprovals.values()) {
+      if (intent.entryId === id) return true;
+    }
+    return false;
   }
 
   respondApproval(entryId, verdict) {
     if (this.linkState !== "online") return;
-    this.pendingApprovals.set(entryId, { type: "respondApproval", entryId, verdict });
+    const id = this._nextId++;
+    this.pendingApprovals.set(id, { type: "respondApproval", entryId, verdict });
     this.sent.push(JSON.stringify({
       type: "approval.respond",
+      id,
       entryId,
       verdict,
     }));
@@ -110,6 +121,10 @@ class MockMeekoService {
       ...a,
       approvals: (a.approvals || []).filter(approval => approval.entryId !== entryId),
     }));
+    // The approval is resolved, so any pending intent for it is moot.
+    for (const [id, intent] of this.pendingApprovals) {
+      if (intent.entryId === entryId) this.pendingApprovals.delete(id);
+    }
     // Clear error on success
     const next = { ...this.errors };
     delete next[entryId];
@@ -340,6 +355,7 @@ describe("MeekoService — respondApproval", () => {
     expect(svc.sent).toHaveLength(1);
     const msg = JSON.parse(svc.sent[0]);
     expect(msg.type).toBe("approval.respond");
+    expect(msg.id).toBe(0);
     expect(msg.entryId).toBe("a1");
     expect(msg.verdict).toBe("approve");
   });
@@ -377,30 +393,34 @@ describe("MeekoService — handleResponse error correlation", () => {
   test("ok response clears pending intent", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: true });
-    expect(svc.isPending("a1")).toBe(false);
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: true });
+    expect(svc.isPending(id)).toBe(false);
   });
 
   test("stale_entry error sets errors map", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
     expect(svc.errors["a1"]).toBe("stale_entry");
-    expect(svc.isPending("a1")).toBe(false);
+    expect(svc.isPending(id)).toBe(false);
   });
 
   test("peer_not_shell error sets errors map", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "peer_not_shell" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "peer_not_shell" });
     expect(svc.errors["a1"]).toBe("peer_not_shell");
-    expect(svc.isPending("a1")).toBe(false);
+    expect(svc.isPending(id)).toBe(false);
   });
 
   test("error does NOT remove approval from agents list", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
     // Approval should still be in the list (not silently dropped)
     expect(svc.agents[0].approvals).toHaveLength(1);
     expect(svc.agents[0].approvals[0].entryId).toBe("a1");
@@ -410,7 +430,8 @@ describe("MeekoService — handleResponse error correlation", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
     const before = svc.errors;
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
     // Reassignment creates a new object reference
     expect(svc.errors).not.toBe(before);
   });
@@ -581,7 +602,8 @@ describe("ApprovalCard — leaf control", () => {
     let svc = makeService();
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
     // errors["a1"] is set, agents[0].approvals still has a1
     expect(svc.errors["a1"]).toBe("stale_entry");
     expect(svc.agents[0].approvals).toHaveLength(1);
@@ -599,7 +621,8 @@ describe("CR&S constraints — Phase 3", () => {
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
     const before = svc.errors;
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
     expect(svc.errors).not.toBe(before);
     svc.dispose?.();
   });
@@ -649,8 +672,9 @@ describe("Contract round-trips — Phase 3", () => {
     let svc = makeService();
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "stale_entry" });
-    expect(svc.isPending("a1")).toBe(false);
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "stale_entry" });
+    expect(svc.isPending(id)).toBe(false);
     expect(svc.errors["a1"]).toBe("stale_entry");
     // Approval still in list (not silently dropped)
     expect(svc.agents[0].approvals).toHaveLength(1);
@@ -661,8 +685,9 @@ describe("Contract round-trips — Phase 3", () => {
     let svc = makeService();
     sendEvent(svc, SNAPSHOT);
     svc.respondApproval("a1", "approve");
-    svc.handleResponse({ id: 0, ok: false, error: "peer_not_shell" });
-    expect(svc.isPending("a1")).toBe(false);
+    const id = JSON.parse(svc.sent[0]).id;
+    svc.handleResponse({ id, ok: false, error: "peer_not_shell" });
+    expect(svc.isPending(id)).toBe(false);
     expect(svc.errors["a1"]).toBe("peer_not_shell");
     svc.dispose?.();
   });
