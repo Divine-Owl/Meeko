@@ -43,9 +43,19 @@ ColumnLayout {
     readonly property Connections sendWatch: Connections {
         target: MeekoService
 
-        function onSendFailed(verb: string): void {
-            if (verb === "respondApproval")
+        function onSendFailed(verb: string, entryId: string): void {
+            if (verb === "respondApproval" && entryId === root.entryId)
                 root.offlineNotice = "Offline — verdict not sent"
+        }
+    }
+
+    // Clear the notice when the socket recovers.
+    readonly property Connections linkWatch: Connections {
+        target: MeekoService
+
+        function onLinkStateChanged(): void {
+            if (MeekoService.linkState === "online")
+                root.offlineNotice = ""
         }
     }
     readonly property bool hasError: root.error !== ""

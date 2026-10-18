@@ -45,7 +45,7 @@ Singleton {
     property int dropCount: 0
 
     // ── SIGNALS ──────────────────────────────────────────────────────────────
-    signal sendFailed(string verb)
+    signal sendFailed(string verb, string entryId)
 
     // turns: map of agentId → array of Turn (for panel display)
     property var turns: ({})
@@ -314,7 +314,7 @@ Singleton {
 
     function send(verb: string, params: var): void {
         if (root.linkState !== "online") {
-            root.sendFailed(verb)
+            root.sendFailed(verb, params?.entryId ?? "")
             return
         }
         const id = root.nextId++
