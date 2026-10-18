@@ -198,7 +198,10 @@ impl Host {
                     );
                     proj.reset();
                     drop(proj);
-                    return Ok(0);
+                    // Advance the cursor to the current rev so the next poll
+                    // starts from here, not from 0 (which would re-trigger the
+                    // same gap check forever).
+                    return Ok(event_rev);
                 }
                 since = since.max(event_rev);
 
